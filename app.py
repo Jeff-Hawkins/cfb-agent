@@ -8,7 +8,9 @@ from models.win_probability import predict_win_probability, build_team_profiles
 
 load_dotenv()
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+def get_client():
+    api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+    return Groq(api_key=api_key)
 
 st.set_page_config(
     page_title="CFB Betting Analyst",
@@ -153,7 +155,7 @@ def run_agent(home_team, away_team, season):
     ]
 
     while True:
-        response = client.chat.completions.create(
+        response = get_client().chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=messages,
         tools=tools,
