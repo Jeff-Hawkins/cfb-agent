@@ -15,8 +15,12 @@ if not os.path.exists("data/cfb.db"):
             fetch_games(year)
             fetch_team_stats(year)
             fetch_betting_lines(year)
+
+if not os.path.exists("models/saved/win_prob_model.pkl"):
+    os.makedirs("models/saved", exist_ok=True)
     from models.win_probability import train_model
-    train_model()
+    with st.spinner("Training win probability model..."):
+        train_model()
 
 load_dotenv()
 
