@@ -35,10 +35,9 @@ def fetch_team_stats(year: int):
     response = requests.get(url, headers=HEADERS, params=params)
     data = response.json()
     if not isinstance(data, list) or len(data) == 0:
-        print(f"No data for {year}")
+        print(f"No team stats data for {year}")
         return pd.DataFrame()
     df = pd.DataFrame(data)
-    df = pd.DataFrame(response.json())
     save_to_db(df, "team_stats")
     return df
 
@@ -48,9 +47,8 @@ def fetch_betting_lines(year: int):
     response = requests.get(url, headers=HEADERS, params=params)
     data = response.json()
     if not isinstance(data, list) or len(data) == 0:
-        print(f"No data for {year}")
+        print(f"No betting lines data for {year}")
         return pd.DataFrame()
     df = pd.DataFrame(data)
-    df = pd.DataFrame(response.json())
     save_to_db(df, "betting_lines")
     return df
