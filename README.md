@@ -147,4 +147,4 @@ streamlit run app.py
 
 Built by Jeff Hawkins — former D1 football player (USF) turned data analyst. This project sits at the intersection of two things I care about: sports and predictive analytics. The goal isn’t just to predict wins — it’s to understand *why* the model gets it wrong and build something more honest over time.
 
-Connect on [LinkedIn](https://www.linkedin.com/in/yourprofile) | [Live Demo](https://your-streamlit-app-url.streamlit.app)
+Connect on [LinkedIn](https://www.linkedin.com/in/jeffrey-hawkins-a576a1128/) | [Live Demo](https://cfb-agent.streamlit.app/)
