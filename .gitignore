@@ -1,0 +1,7 @@
+.env
+data/cfb.db
+models/saved/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
