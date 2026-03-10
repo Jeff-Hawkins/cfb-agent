@@ -6,11 +6,25 @@ from dotenv import load_dotenv
 from db.database import query_db
 from models.win_probability import predict_win_probability, build_team_profiles
 
+# Build DB if it doesn't exist (first run on cloud)
+if not os.path.exists("data/cfb.db"):
+    os.makedirs("data", exist_ok=True)
+    from tools.stats_fetcher import fetch_games, fetch_team_stats, fetch_betting_lines
+    with st.spinner("Building database for first time... this takes about 60 seconds."):
+        for year in [2021, 2022, 2023, 2024, 2025]:
+            fetch_games(year)
+            fetch_team_stats(year)
+            fetch_betting_lines(year)
+    from models.win_probability import train_model
+    train_model()
+
 load_dotenv()
 
-def get_client():
-    api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-    return Groq(api_key=api_key)
+# Load secrets from Streamlit Cloud if available
+if "CFB_API_KEY" in st.secrets:
+    os.environ["CFB_API_KEY"] = st.secrets["CFB_API_KEY"]
+if "GROQ_API_KEY" in st.secrets:
+    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 
 st.set_page_config(
     page_title="CFB Betting Analyst",
