@@ -1,4 +1,8 @@
-from tools.stats_fetcher import fetch_games, fetch_team_stats, fetch_betting_lines
+from tools.stats_fetcher import (
+    fetch_games, fetch_team_stats, fetch_betting_lines,
+    fetch_sp_ratings, fetch_recruiting_rankings,
+    fetch_returning_production, fetch_coaches,
+)
 from db.database import query_db
 from models.win_probability import predict_win_probability
 import os
@@ -14,6 +18,10 @@ if __name__ == "__main__":
         fetch_games(year)
         fetch_team_stats(year)
         fetch_betting_lines(year)
+        fetch_sp_ratings(year)
+        fetch_recruiting_rankings(year)
+        fetch_returning_production(year)
+        fetch_coaches(year)
 
     print("\nTotal games in DB:")
     print(query_db("SELECT season, COUNT(*) as game_count FROM games GROUP BY season"))
