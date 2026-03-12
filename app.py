@@ -67,7 +67,7 @@ with st.sidebar:
 
     home_team = st.selectbox("Home Team", teams, index=teams.index("Ohio State") if "Ohio State" in teams else 0)
     away_team = st.selectbox("Away Team", teams, index=teams.index("Michigan") if "Michigan" in teams else 1)
-    season = st.selectbox("Season", [2025, 2024, 2023, 2022, 2021], index=0)
+    season = st.selectbox("Season", [2026, 2025, 2024, 2023, 2022, 2021], index=0)
 
     analyze_btn = st.button("Analyze Matchup", type="primary", use_container_width=True)
 

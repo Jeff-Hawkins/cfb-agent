@@ -245,7 +245,30 @@ def train_model():
 # Inference
 # ---------------------------------------------------------------------------
 
+# Logistic calibration for composite-based 2026 predictions.
+# k=0.06, HOME_FIELD=4.0 → equal teams at home ≈ 56%, 20-pt edge ≈ 81%.
+_COMPOSITE_K          = 0.06
+_COMPOSITE_HOME_FIELD = 4.0
+
+def _predict_from_preseason_composite(home_team: str, away_team: str, table: str) -> float | str:
+    df = query_db(f"SELECT team, composite_100 FROM {table}")
+    scores = dict(zip(df["team"], df["composite_100"]))
+    h = scores.get(home_team)
+    a = scores.get(away_team)
+    if h is None:
+        return f"No preseason composite data found for {home_team}"
+    if a is None:
+        return f"No preseason composite data found for {away_team}"
+    diff = (h + _COMPOSITE_HOME_FIELD) - a
+    prob = 1.0 / (1.0 + np.exp(-_COMPOSITE_K * diff))
+    return round(float(prob), 4)
+
+
 def predict_win_probability(home_team: str, away_team: str, season: int = 2024):
+    # 2026: no in-season data yet — use preseason composite ratings
+    if season == 2026:
+        return _predict_from_preseason_composite(home_team, away_team, "preseason_2026")
+
     model        = joblib.load("models/saved/win_prob_model.pkl")
     feature_cols = joblib.load("models/saved/feature_cols.pkl")
 
