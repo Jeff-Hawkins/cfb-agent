@@ -19,12 +19,20 @@ from models.win_probability import predict_win_probability, build_team_profiles
 # Build DB if it doesn't exist
 if not os.path.exists("data/cfb.db"):
     os.makedirs("data", exist_ok=True)
-    from tools.stats_fetcher import fetch_games, fetch_team_stats, fetch_betting_lines
+    from tools.stats_fetcher import (
+        fetch_games, fetch_team_stats, fetch_betting_lines,
+        fetch_sp_ratings, fetch_recruiting_rankings,
+        fetch_returning_production, fetch_coaches,
+    )
     with st.spinner("Building database for first time... this takes about 90 seconds."):
         for year in [2021, 2022, 2023, 2024, 2025]:
             fetch_games(year)
             fetch_team_stats(year)
             fetch_betting_lines(year)
+            fetch_sp_ratings(year)
+            fetch_recruiting_rankings(year)
+            fetch_returning_production(year)
+            fetch_coaches(year)
 
 # Train model if it doesn't exist
 if not os.path.exists("models/saved/win_prob_model.pkl"):

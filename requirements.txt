@@ -3,6 +3,7 @@ pandas
 sqlalchemy
 python-dotenv
 scikit-learn
+lightgbm
 joblib
 groq
 anthropic
