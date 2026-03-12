@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 import os
-from db.database import save_to_db
+from db.database import save_to_db, query_db, engine
 
 load_dotenv()
 
@@ -120,3 +120,80 @@ def fetch_coaches(year: int):
     df = pd.DataFrame(rows)
     save_to_db(df, "coaches")
     return df
+
+ELIGIBILITY_WEIGHT = {"Immediate": 1.0, "Redshirt": 0.5}
+
+def fetch_portal_players(year: int):
+    url = f"{BASE_URL}/player/portal"
+    params = {"year": year}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"No portal players data for {year}")
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+
+    # Only keep completed transfers (destination known)
+    df = df[df["destination"].notna()].copy()
+
+    # Fill null stars with the position average, then fall back to 2.5
+    pos_avg = df.groupby("position")["stars"].transform("mean")
+    df["stars"] = df["stars"].fillna(pos_avg).fillna(2.5)
+
+    # Eligibility weighting: Immediate=1.0, Redshirt=0.5, other=0.75
+    df["elig_weight"]    = df["eligibility"].map(ELIGIBILITY_WEIGHT).fillna(0.75)
+    df["weighted_stars"] = df["stars"] * df["elig_weight"]
+
+    save_to_db(df, "portal_players")
+    return df
+
+
+def build_portal_net_ratings(year: int):
+    """
+    Aggregate portal_players into a per-team net rating for one season:
+      net_portal_score = sum(weighted_stars incoming) - sum(weighted_stars outgoing)
+
+    Only destination transfers to FBS programs are counted as incoming.
+    Outgoing is still counted for all FBS origin teams regardless of where
+    the player ended up, since the talent loss is real either way.
+    FBS team universe is derived from the games table (homeClassification/awayClassification = 'fbs').
+    """
+    df = query_db(f"SELECT origin, destination, weighted_stars FROM portal_players WHERE season = {year}")
+    if df.empty:
+        print(f"No portal_players rows for {year} to aggregate")
+        return pd.DataFrame()
+
+    # Build FBS team set from games table — use a range of seasons for robustness
+    fbs_teams = query_db("""
+        SELECT DISTINCT homeTeam AS team FROM games WHERE homeClassification = 'fbs'
+        UNION
+        SELECT DISTINCT awayTeam AS team FROM games WHERE awayClassification = 'fbs'
+    """)
+    fbs_set = set(fbs_teams["team"])
+
+    # Incoming: only count FBS→FBS transfers (both origin and destination must be FBS)
+    fbs_incoming = df[df["destination"].isin(fbs_set) & df["origin"].isin(fbs_set)]
+    incoming = (
+        fbs_incoming.groupby("destination")["weighted_stars"].sum()
+        .reset_index()
+        .rename(columns={"destination": "team", "weighted_stars": "stars_in"})
+    )
+
+    # Outgoing: all departures from FBS origin teams
+    fbs_outgoing = df[df["origin"].isin(fbs_set)]
+    outgoing = (
+        fbs_outgoing.groupby("origin")["weighted_stars"].sum()
+        .reset_index()
+        .rename(columns={"origin": "team", "weighted_stars": "stars_out"})
+    )
+
+    net = incoming.merge(outgoing, on="team", how="outer").fillna(0)
+    net["net_portal_score"] = net["stars_in"] - net["stars_out"]
+    net["season"] = year
+
+    net[["season", "team", "stars_in", "stars_out", "net_portal_score"]].to_sql(
+        "portal_net_ratings", con=engine, if_exists="append", index=False
+    )
+    print(f"Saved {len(net)} rows to 'portal_net_ratings'")
+    return net

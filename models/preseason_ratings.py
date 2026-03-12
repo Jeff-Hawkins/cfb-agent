@@ -16,14 +16,9 @@ in the DB), which introduces mild leakage. Treat the backtest as a structural
 sanity check rather than a true out-of-sample test.
 """
 
-import os
-import requests
 import numpy as np
 import pandas as pd
-from dotenv import load_dotenv
 from db.database import query_db
-
-load_dotenv()
 
 WEIGHTS = {
     "sp":       0.30,
@@ -85,40 +80,16 @@ def build_returning(year: int) -> pd.DataFrame:
 
 def build_portal(year: int) -> pd.DataFrame:
     """
-    Net portal stars per team: sum(incoming stars) - sum(outgoing stars).
-    Players with no star rating default to 2 (below-average transfer).
-    Players with destination=None are outgoing only (uncommitted / went pro).
+    Net portal score from portal_net_ratings table (built by stats_fetcher).
+    FBS-only filter and eligibility weighting are applied at ingestion time.
     """
-    api_key = os.getenv("CFB_API_KEY")
-    resp = requests.get(
-        "https://api.collegefootballdata.com/player/portal",
-        headers={"Authorization": f"Bearer {api_key}"},
-        params={"year": year},
+    df = query_db(
+        f"SELECT team, net_portal_score AS portal_net "
+        f"FROM portal_net_ratings WHERE season = {year}"
     )
-    data = resp.json()
-    if not isinstance(data, list) or not data:
-        print(f"  Warning: no portal data for {year}, skipping component.")
-        return pd.DataFrame(columns=["team", "portal_net"])
-
-    df = pd.DataFrame(data)
-    df["stars"] = df["stars"].fillna(2)
-
-    outgoing = (
-        df[df["origin"].notna()]
-        .groupby("origin")["stars"].sum()
-        .reset_index()
-        .rename(columns={"origin": "team", "stars": "stars_out"})
-    )
-    incoming = (
-        df[df["destination"].notna()]
-        .groupby("destination")["stars"].sum()
-        .reset_index()
-        .rename(columns={"destination": "team", "stars": "stars_in"})
-    )
-
-    portal = outgoing.merge(incoming, on="team", how="outer").fillna(0)
-    portal["portal_net"] = portal["stars_in"] - portal["stars_out"]
-    return portal[["team", "portal_net"]]
+    if df.empty:
+        print(f"  Warning: no portal_net_ratings rows for {year}, skipping component.")
+    return df
 
 
 def build_coaching(year: int) -> pd.DataFrame:
@@ -171,15 +142,26 @@ def _zscore(series: pd.Series) -> pd.Series:
     return (series - mu) / sigma if sigma > 0 else pd.Series(0.0, index=series.index)
 
 
-def build_composite(year: int = 2024, verbose: bool = True) -> pd.DataFrame:
-    if verbose:
-        print(f"Building composite rating for {year}...")
+def save_composite(df: pd.DataFrame, table_name: str):
+    from db.database import engine
+    df.to_sql(table_name, con=engine, if_exists="replace", index=False)
+    print(f"Saved {len(df)} rows to '{table_name}'")
 
-    sp      = build_sp(year)
-    rec     = build_recruiting(year)
-    ret     = build_returning(year)
-    portal  = build_portal(year)
-    coaching = build_coaching(year)
+
+def build_composite(year: int = 2024, data_years: dict = None, verbose: bool = True) -> pd.DataFrame:
+    dy = {"sp": year, "rec": year, "ret": year, "portal": year, "coaching": year}
+    if data_years:
+        dy.update(data_years)
+
+    if verbose:
+        print(f"Building composite rating (SP+={dy['sp']}, rec={dy['rec']}, "
+              f"ret={dy['ret']}, portal={dy['portal']}, coaching={dy['coaching']})...")
+
+    sp       = build_sp(dy["sp"])
+    rec      = build_recruiting(dy["rec"])
+    ret      = build_returning(dy["ret"])
+    portal   = build_portal(dy["portal"])
+    coaching = build_coaching(dy["coaching"])
 
     # Merge all components on team; SP+ provides the FBS team universe
     df = sp.copy()
@@ -287,3 +269,35 @@ if __name__ == "__main__":
         print(f"  {i+1:<5} {row['team']:<25} {row['composite_100']:>5.1f}  {_display_component(row)}")
 
     backtest(YEAR, composite)
+
+    # ------------------------------------------------------------------
+    # 2026 preseason — per-component years since they differ
+    #   SP+ / recruiting / returning production : 2025 (most recent final)
+    #   Portal                                  : 2026 class (available)
+    #   Coaching                                : 2025 (2026 data not yet
+    #                                             in CFBD API)
+    # ------------------------------------------------------------------
+    composite_2026 = build_composite(
+        year=2025,
+        data_years={"portal": 2026, "coaching": 2025},
+    )
+    save_composite(composite_2026, "preseason_2026")
+
+    for col in ["sp_rating", "rec_3yr_avg", "ret_ppa", "portal_net", "coaching_score"]:
+        composite_2026[col] = composite_2026[col].fillna(0)
+
+    print(f"\n{'='*75}")
+    print(f"  TOP 25 — 2026 Preseason Composite Rating")
+    print(f"{'='*75}")
+    print(f"  {'Rank':<5} {'Team':<25} {'Score':>6}  Components")
+    print(f"  {'-'*70}")
+    for i, row in composite_2026.head(25).iterrows():
+        print(f"  {i+1:<5} {row['team']:<25} {row['composite_100']:>5.1f}  {_display_component(row)}")
+
+    print(f"\n{'='*75}")
+    print(f"  BOTTOM 10 — 2026 Preseason Composite Rating")
+    print(f"{'='*75}")
+    print(f"  {'Rank':<5} {'Team':<25} {'Score':>6}  Components")
+    print(f"  {'-'*70}")
+    for i, row in composite_2026.tail(10).iterrows():
+        print(f"  {i+1:<5} {row['team']:<25} {row['composite_100']:>5.1f}  {_display_component(row)}")
