@@ -128,6 +128,82 @@ def fetch_coaches(year: int):
     save_to_db(df, "coaches")
     return df
 
+def fetch_advanced_stats(year: int):
+    """Fetch advanced team stats for a given year, flatten nested offense/defense objects,
+    keep key columns, and save to the advanced_stats table."""
+    url = f"{BASE_URL}/stats/season/advanced"
+    params = {"year": year}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"No advanced stats data for {year}")
+        return pd.DataFrame()
+    df = pd.json_normalize(data, sep="_")
+    keep = ["team", "season", "offense_havocAllowed", "offense_lineYards",
+            "defense_stuffRate", "defense_passIsrRate", "defense_havocTotal"]
+    cols = [c for c in keep if c in df.columns]
+    df = df[cols]
+    save_to_db(df, "advanced_stats")
+    return df
+
+
+def fetch_drives(year: int):
+    """Fetch drive-level data for a given year and save to the drives table."""
+    url = f"{BASE_URL}/drives"
+    params = {"year": year, "seasonType": "regular"}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"No drives data for {year}")
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    save_to_db(df, "drives")
+    return df
+
+
+def fetch_pregame_wp(year: int):
+    """Fetch pregame win probability for every game in a given year and save to the pregame_wp table."""
+    url = f"{BASE_URL}/metrics/wp/pregame"
+    params = {"year": year}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"No pregame WP data for {year}")
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    save_to_db(df, "pregame_wp")
+    return df
+
+
+def fetch_talent(year: int):
+    """Fetch team talent composite scores for a given year and save to the talent table."""
+    url = f"{BASE_URL}/talent"
+    params = {"year": year}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"No talent data for {year}")
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    save_to_db(df, "talent")
+    return df
+
+
+def fetch_elo_ratings(year: int):
+    """Fetch end-of-season Elo ratings for a given year and save to the elo_ratings table."""
+    url = f"{BASE_URL}/ratings/elo"
+    params = {"year": year}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"No Elo ratings data for {year}")
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    save_to_db(df, "elo_ratings")
+    return df
+
+
+
 ELIGIBILITY_WEIGHT = {"Immediate": 1.0, "Redshirt": 0.5}
 
 def fetch_portal_players(year: int):

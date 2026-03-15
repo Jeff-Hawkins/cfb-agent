@@ -201,6 +201,65 @@ preseason_2026 = Table(
 )
 
 
+elo_ratings = Table(
+    "elo_ratings", metadata,
+    Column("year",        BigInteger),
+    Column("team",        Text),
+    Column("conference",  Text),
+    Column("elo",         BigInteger),
+)
+
+
+advanced_stats = Table(
+    "advanced_stats", metadata,
+    Column("team",               Text),
+    Column("season",             BigInteger),
+    Column("offense_lineYards",  Float),
+    Column("defense_stuffRate",  Float),
+)
+
+drives = Table(
+    "drives", metadata,
+    Column("id",                 Text),
+    Column("gameId",             BigInteger),
+    Column("offense",            Text),
+    Column("offenseConference",  Text),
+    Column("defense",            Text),
+    Column("defenseConference",  Text),
+    Column("driveNumber",        BigInteger),
+    Column("scoring",            Boolean),
+    Column("startPeriod",        BigInteger),
+    Column("startYardline",      BigInteger),
+    Column("startYardsToGoal",   BigInteger),
+    Column("startTime",          Text),
+    Column("endPeriod",          BigInteger),
+    Column("endYardline",        BigInteger),
+    Column("endYardsToGoal",     BigInteger),
+    Column("endTime",            Text),
+    Column("elapsed",            Text),
+    Column("plays",              BigInteger),
+    Column("yards",              BigInteger),
+    Column("driveResult",        Text),
+    Column("isHomeOffense",      Boolean),
+    Column("startOffenseScore",  BigInteger),
+    Column("startDefenseScore",  BigInteger),
+    Column("endOffenseScore",    BigInteger),
+    Column("endDefenseScore",    BigInteger),
+)
+
+pregame_wp = Table(
+    "pregame_wp", metadata,
+    Column("season",             BigInteger),
+    Column("week",               BigInteger),
+    Column("seasonType",         Text),
+    Column("gameId",             BigInteger),
+    Column("homeTeam",           Text),
+    Column("awayTeam",           Text),
+    Column("spread",             Float),
+    Column("homeWinProbability", Float),
+)
+
+
 def create_all_tables():
     """Create all CFB agent tables in the database if they do not already exist.
 
@@ -210,7 +269,7 @@ def create_all_tables():
     Tables created (in dependency order):
         games, team_stats, betting_lines, sp_ratings, recruiting_rankings,
         returning_production, coaches, portal_players, portal_net_ratings,
-        preseason_2026
+        preseason_2026, elo_ratings, advanced_stats, drives, pregame_wp
     """
     metadata.create_all(engine, checkfirst=True)
     print("All tables verified / created.")

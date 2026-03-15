@@ -9,6 +9,10 @@ import pandas as pd
 from sqlalchemy import text
 
 from db.database import engine, save_to_db, query_db, test_connection as db_test_connection
+from tools.stats_fetcher import (
+    fetch_elo_ratings, fetch_advanced_stats, fetch_drives,
+    fetch_pregame_wp, fetch_talent,
+)
 
 
 TEMP_TABLE = "test_db_temp"
@@ -72,3 +76,38 @@ def test_query_db_raises_on_bad_sql():
     """query_db() should propagate a SQLAlchemy exception when given invalid SQL."""
     with pytest.raises(Exception):
         query_db("SELECT * FROM table_that_does_not_exist_xyz")
+
+
+def test_fetch_elo_ratings():
+    """fetch_elo_ratings(2024) should return a non-empty DataFrame containing a 'team' column."""
+    df = fetch_elo_ratings(2024)
+    assert not df.empty
+    assert "team" in df.columns
+
+
+def test_fetch_advanced_stats():
+    """fetch_advanced_stats(2024) should return a non-empty DataFrame containing a 'team' column."""
+    df = fetch_advanced_stats(2024)
+    assert not df.empty
+    assert "team" in df.columns
+
+
+def test_fetch_drives():
+    """fetch_drives(2024) should return a non-empty DataFrame containing an 'offense' column."""
+    df = fetch_drives(2024)
+    assert not df.empty
+    assert "offense" in df.columns
+
+
+def test_fetch_pregame_wp():
+    """fetch_pregame_wp(2024) should return a non-empty DataFrame containing a 'homeWinProbability' column."""
+    df = fetch_pregame_wp(2024)
+    assert not df.empty
+    assert "homeWinProbability" in df.columns
+
+
+def test_fetch_talent():
+    """fetch_talent(2024) should return a non-empty DataFrame containing a 'talent' column."""
+    df = fetch_talent(2024)
+    assert not df.empty
+    assert "talent" in df.columns
