@@ -13,7 +13,7 @@ RECENCY_WEIGHTS = {2021: 0.2, 2022: 0.4, 2023: 0.6, 2024: 0.8, 2025: 1.0}
 
 def build_team_profiles():
     """Pivot team_stats into per-team/season columns. Kept for app.py compatibility."""
-    stats = query_db("SELECT * FROM team_stats")
+    stats = query_db('SELECT season, team, "statName", "statValue" FROM team_stats')
     pivot = stats.pivot_table(
         index=["team", "season"],
         columns="statName",
@@ -24,7 +24,7 @@ def build_team_profiles():
 
 def _load_sp():
     return query_db(
-        "SELECT year, team, rating, offense_rating, defense_rating, specialTeams_rating "
+        'SELECT year, team, rating, offense_rating, defense_rating, "specialTeams_rating" '
         "FROM sp_ratings"
     )
 
@@ -41,14 +41,14 @@ def _load_recruiting():
 
 def _load_returning():
     return query_db(
-        "SELECT season AS year, team, totalPPA AS ret_totalPPA, percentPPA AS ret_percentPPA "
+        'SELECT season AS year, team, "totalPPA" AS "ret_totalPPA", "percentPPA" AS "ret_percentPPA" '
         "FROM returning_production"
     )
 
 
 def _load_coaches():
     coaches = query_db(
-        "SELECT school, year, firstName, lastName, wins, losses, games FROM coaches"
+        'SELECT school, year, "firstName", "lastName", wins, losses, games FROM coaches'
     )
     coaches = coaches.sort_values(["firstName", "lastName", "year"])
 
@@ -161,10 +161,10 @@ def _build_features(home_team, away_team, season, profiles, sp, rec, ret, coa, a
 
 def build_training_data():
     games = query_db("""
-        SELECT homeTeam, awayTeam, homePoints, awayPoints, season
+        SELECT "homeTeam", "awayTeam", "homePoints", "awayPoints", season
         FROM games
-        WHERE homePoints IS NOT NULL AND awayPoints IS NOT NULL
-          AND homeClassification = 'fbs' AND awayClassification = 'fbs'
+        WHERE "homePoints" IS NOT NULL AND "awayPoints" IS NOT NULL
+          AND "homeClassification" = 'fbs' AND "awayClassification" = 'fbs'
     """)
 
     profiles = build_team_profiles()

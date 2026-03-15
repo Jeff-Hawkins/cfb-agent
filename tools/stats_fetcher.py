@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 import os
-from db.database import save_to_db, query_db, engine
+from db.database import save_to_db, query_db
 
 load_dotenv()
 
@@ -15,6 +15,7 @@ HEADERS = {
 }
 
 def fetch_games(year: int, season_type: str = "regular"):
+    """Fetch all games for a given season and save to the games table."""
     url = f"{BASE_URL}/games"
     params = {"year": year, "seasonType": season_type}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -30,6 +31,7 @@ def fetch_games(year: int, season_type: str = "regular"):
     return df
 
 def fetch_team_stats(year: int):
+    """Fetch season team stats for a given year and save to the team_stats table."""
     url = f"{BASE_URL}/stats/season"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -42,6 +44,7 @@ def fetch_team_stats(year: int):
     return df
 
 def fetch_betting_lines(year: int):
+    """Fetch betting lines for a given year and save to the betting_lines table."""
     url = f"{BASE_URL}/lines"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -54,6 +57,7 @@ def fetch_betting_lines(year: int):
     return df
 
 def fetch_sp_ratings(year: int):
+    """Fetch SP+ ratings for a given year and save to the sp_ratings table."""
     url = f"{BASE_URL}/ratings/sp"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -66,6 +70,7 @@ def fetch_sp_ratings(year: int):
     return df
 
 def fetch_recruiting_rankings(year: int):
+    """Fetch team recruiting rankings for a given year and save to the recruiting_rankings table."""
     url = f"{BASE_URL}/recruiting/teams"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -78,6 +83,7 @@ def fetch_recruiting_rankings(year: int):
     return df
 
 def fetch_returning_production(year: int):
+    """Fetch returning production PPA data for a given year and save to the returning_production table."""
     url = f"{BASE_URL}/player/returning"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -90,6 +96,7 @@ def fetch_returning_production(year: int):
     return df
 
 def fetch_coaches(year: int):
+    """Fetch head coach records for a given year, explode nested seasons, and save to the coaches table."""
     url = f"{BASE_URL}/coaches"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -124,6 +131,7 @@ def fetch_coaches(year: int):
 ELIGIBILITY_WEIGHT = {"Immediate": 1.0, "Redshirt": 0.5}
 
 def fetch_portal_players(year: int):
+    """Fetch transfer portal players for a given year, apply eligibility weighting, and save to portal_players table."""
     url = f"{BASE_URL}/player/portal"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -166,9 +174,9 @@ def build_portal_net_ratings(year: int):
 
     # Build FBS team set from games table — use a range of seasons for robustness
     fbs_teams = query_db("""
-        SELECT DISTINCT homeTeam AS team FROM games WHERE homeClassification = 'fbs'
+        SELECT DISTINCT "homeTeam" AS team FROM games WHERE "homeClassification" = 'fbs'
         UNION
-        SELECT DISTINCT awayTeam AS team FROM games WHERE awayClassification = 'fbs'
+        SELECT DISTINCT "awayTeam" AS team FROM games WHERE "awayClassification" = 'fbs'
     """)
     fbs_set = set(fbs_teams["team"])
 
@@ -192,8 +200,5 @@ def build_portal_net_ratings(year: int):
     net["net_portal_score"] = net["stars_in"] - net["stars_out"]
     net["season"] = year
 
-    net[["season", "team", "stars_in", "stars_out", "net_portal_score"]].to_sql(
-        "portal_net_ratings", con=engine, if_exists="append", index=False
-    )
-    print(f"Saved {len(net)} rows to 'portal_net_ratings'")
+    save_to_db(net[["season", "team", "stars_in", "stars_out", "net_portal_score"]], "portal_net_ratings")
     return net

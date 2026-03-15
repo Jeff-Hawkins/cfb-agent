@@ -3,15 +3,23 @@ from tools.stats_fetcher import (
     fetch_sp_ratings, fetch_recruiting_rankings,
     fetch_returning_production, fetch_coaches,
 )
-from db.database import query_db
+from db.database import query_db, engine
+from sqlalchemy import text
 from models.win_probability import predict_win_probability
-import os
+
+FETCH_TABLES = [
+    "games", "team_stats", "betting_lines", "sp_ratings",
+    "recruiting_rankings", "returning_production", "coaches",
+    "portal_players", "portal_net_ratings",
+]
 
 if __name__ == "__main__":
-    # Fresh start each run
-    if os.path.exists("data/cfb.db"):
-        os.remove("data/cfb.db")
-        print("Cleared existing database.")
+    # Truncate all fetch tables for a clean rebuild
+    with engine.connect() as conn:
+        for table in FETCH_TABLES:
+            conn.execute(text(f"TRUNCATE TABLE {table}"))
+        conn.commit()
+    print("Cleared existing data from all fetch tables.")
 
     for year in [2021, 2022, 2023, 2024, 2025]:
         print(f"\nFetching {year} data...")

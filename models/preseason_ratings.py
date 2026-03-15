@@ -77,7 +77,7 @@ def build_returning(year: int) -> pd.DataFrame:
     conference-strength multiplier so G5 volume doesn't inflate the signal.
     """
     df = query_db(
-        f"SELECT team, conference, percentPPA AS ret_ppa "
+        f'SELECT team, conference, "percentPPA" AS ret_ppa '
         f"FROM returning_production WHERE season = {year}"
     )
     df["conf_mult"] = df["conference"].map(CONF_MULTIPLIER).fillna(0.85)
@@ -119,7 +119,7 @@ def build_coach_effectiveness(year: int) -> pd.DataFrame:
     """
     # Load all raw data upfront
     coaches_all = query_db(
-        "SELECT school, year, firstName, lastName, wins, games FROM coaches"
+        'SELECT school, year, "firstName", "lastName", wins, games FROM coaches'
     )
     sp_all = query_db(
         "SELECT year, team AS school, rating AS sp_rating FROM sp_ratings"
@@ -276,11 +276,11 @@ def build_composite(year: int = 2024, data_years: dict = None, verbose: bool = T
 
 def backtest(year: int, composite_df: pd.DataFrame) -> float:
     games = query_db(f"""
-        SELECT homeTeam, awayTeam, homePoints, awayPoints
+        SELECT "homeTeam", "awayTeam", "homePoints", "awayPoints"
         FROM games
         WHERE season = {year}
-          AND homePoints IS NOT NULL AND awayPoints IS NOT NULL
-          AND homeClassification = 'fbs' AND awayClassification = 'fbs'
+          AND "homePoints" IS NOT NULL AND "awayPoints" IS NOT NULL
+          AND "homeClassification" = 'fbs' AND "awayClassification" = 'fbs'
     """)
 
     scores = dict(zip(composite_df["team"], composite_df["composite_100"]))
