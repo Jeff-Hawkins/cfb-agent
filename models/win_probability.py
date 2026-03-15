@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from db.database import query_db
+from sklearn.calibration import calibration_curve
+from sklearn.metrics import brier_score_loss
 import joblib
 import os
 
@@ -262,12 +264,27 @@ def train_model():
     if not X_test.empty:
         test_acc = model.score(X_test, y_test)
         print(f"Holdout accuracy  (2025):   {test_acc:.2%}  ({len(X_test)} games)")
+
+        y_prob = model.predict_proba(X_test)[:, 1]
+        brier  = brier_score_loss(y_test, y_prob)
+        print(f"Brier score       (2025):   {brier:.4f}")
+
+        frac_pos, mean_pred = calibration_curve(y_test, y_prob, n_bins=10, strategy="uniform")
+        edges = np.linspace(0.0, 1.0, 11)
+        print("\nCalibration summary (2025 holdout):")
+        print(f"  {'Bin':>12}  {'Pred prob':>10}  {'Actual win%':>11}  {'N':>5}")
+        print(f"  {'-'*12}  {'-'*10}  {'-'*11}  {'-'*5}")
+        for lo, hi, pred, actual in zip(edges[:-1], edges[1:], mean_pred, frac_pos):
+            mask = (y_prob >= lo) & (y_prob < hi)
+            n    = mask.sum()
+            print(f"  {lo:.1f}–{hi:.1f}        {pred:>10.3f}  {actual:>10.1%}  {n:>5}")
     else:
         print("No 2025 games with scores for holdout evaluation.")
 
-    os.makedirs("models/saved", exist_ok=True)
-    joblib.dump(model,        "models/saved/win_prob_model.pkl")
-    joblib.dump(feature_cols, "models/saved/feature_cols.pkl")
+    _saved = os.path.join(os.path.dirname(__file__), "saved")
+    os.makedirs(_saved, exist_ok=True)
+    joblib.dump(model,        os.path.join(_saved, "win_prob_model.pkl"))
+    joblib.dump(feature_cols, os.path.join(_saved, "feature_cols.pkl"))
     print("Model saved.")
 
     return model, feature_cols
@@ -301,8 +318,9 @@ def predict_win_probability(home_team: str, away_team: str, season: int = 2024):
     if season == 2026:
         return _predict_from_preseason_composite(home_team, away_team, "preseason_2026")
 
-    model        = joblib.load("models/saved/win_prob_model.pkl")
-    feature_cols = joblib.load("models/saved/feature_cols.pkl")
+    _saved = os.path.join(os.path.dirname(__file__), "saved")
+    model        = joblib.load(os.path.join(_saved, "win_prob_model.pkl"))
+    feature_cols = joblib.load(os.path.join(_saved, "feature_cols.pkl"))
 
     profiles = build_team_profiles()
     key_stats = ["pointsPerGame", "passingYards", "rushingYards", "turnovers", "fumblesLost"]

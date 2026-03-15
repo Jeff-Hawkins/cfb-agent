@@ -67,25 +67,35 @@ Built from the College Football Data API. Clears and rebuilds on each `main.py` 
 
 ## Model
 
-**Algorithm:** Logistic Regression  
-**Accuracy:** ~67% on held-out FBS games (n=2,968, 2021–2024 data)  
-**Features used:**
+**Phase 2 — LightGBM win probability model**
 
-- Points per game
-- Passing yards
-- Rushing yards
-- Turnovers
-- Fumbles lost
-- Home field advantage
+| Metric | Value |
+|---|---|
+| Algorithm | LightGBM (GBDT) |
+| Holdout accuracy (2025) | 78.22% (762 games) |
+| Brier score (2025) | 0.1569 |
+| Training set | 2021–2024, recency-weighted (2021=0.2 → 2024=0.8) |
+
+**Features:**
+
+- SP+ rating differential
+- 3-year recruiting average differential
+- Returning production (PPA) differential
+- Portal net rating differential
+- Coach effectiveness score differential
+- Elo rating differential
+- Talent composite differential
+- Home field / neutral site indicator
+- Points per game, passing yards, rushing yards, turnovers, fumbles lost
+
+**Calibration:** Well-calibrated in the 0.3–0.7 predicted probability range. Slight overconfidence at extremes (>0.9 predicted probability maps to ~90.6% actual win rate).
 
 **Known limitations:**
 
-- No AP Poll / rankings integration (top-10 matchups may be skewed)
-- Season aggregates — doesn’t weight recent form
-- No injury or depth chart data
-- Example miss: Michigan given 67.8% home win probability vs. Ohio State (2025) — OSU won 27-9 as the #2 ranked team
-
-> This is intentional transparency. The model is a baseline, not a black box. Next iteration will incorporate SP+ ratings and rolling recent-form weighting.
+- No injury, depth chart, or momentum data
+- Overconfident at probability extremes — Platt scaling deferred to Phase 6 (Bayesian updating)
+- `spread_diff` removed due to feature leakage; will be re-introduced in Phase 7 (line value engine) using actual opening/closing lines
+- No AP Poll / rankings integration
 
 -----
 
