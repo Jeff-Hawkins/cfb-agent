@@ -4,6 +4,7 @@ Each test uses a dedicated temporary table (test_db_<name>) that is dropped in
 a teardown fixture so the Supabase schema stays clean between runs.
 """
 
+import os
 import pytest
 import pandas as pd
 from sqlalchemy import text
@@ -13,6 +14,7 @@ from tools.stats_fetcher import (
     fetch_elo_ratings, fetch_advanced_stats, fetch_drives,
     fetch_pregame_wp, fetch_talent,
 )
+from models.win_probability import train_model
 
 
 TEMP_TABLE = "test_db_temp"
@@ -111,3 +113,17 @@ def test_fetch_talent():
     df = fetch_talent(2024)
     assert not df.empty
     assert "talent" in df.columns
+
+
+def test_train_model():
+    """train_model() should save the model and feature_cols artifacts to disk,
+    and feature_cols must include the Elo and talent differential features."""
+    train_model()
+
+    assert os.path.exists("models/saved/win_prob_model.pkl"), "win_prob_model.pkl not found"
+    assert os.path.exists("models/saved/feature_cols.pkl"), "feature_cols.pkl not found"
+
+    import joblib
+    feature_cols = joblib.load("models/saved/feature_cols.pkl")
+    assert "elo_diff" in feature_cols, "'elo_diff' missing from feature_cols"
+    assert "talent_diff" in feature_cols, "'talent_diff' missing from feature_cols"

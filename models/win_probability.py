@@ -66,6 +66,16 @@ def _load_coaches():
     return coaches[["school", "year", "is_new", "career_win_pct"]]
 
 
+def _load_elo():
+    """Load end-of-season Elo ratings for all teams and years."""
+    return query_db("SELECT year, team, elo FROM elo_ratings")
+
+
+def _load_talent():
+    """Load team talent composite scores for all teams and years."""
+    return query_db("SELECT year, team, talent FROM talent")
+
+
 # ---------------------------------------------------------------------------
 # Per-team feature helpers
 # ---------------------------------------------------------------------------
@@ -104,11 +114,23 @@ def _coach_vals(coa, team, year):
     return int(r["is_new"]), float(r["career_win_pct"] or 0.5)
 
 
+def _elo_val(elo, team, year):
+    """Return a team's Elo rating for a given year, or 0.0 if missing."""
+    row = elo[(elo["team"] == team) & (elo["year"] == year)]
+    return float(row.iloc[0]["elo"] or 0) if not row.empty else 0.0
+
+
+def _talent_val(talent, team, year):
+    """Return a team's talent composite score for a given year, or 0.0 if missing."""
+    row = talent[(talent["team"] == team) & (talent["year"] == year)]
+    return float(row.iloc[0]["talent"] or 0) if not row.empty else 0.0
+
+
 # ---------------------------------------------------------------------------
 # Feature builder (shared by training and prediction)
 # ---------------------------------------------------------------------------
 
-def _build_features(home_team, away_team, season, profiles, sp, rec, ret, coa, available_stats):
+def _build_features(home_team, away_team, season, profiles, sp, rec, ret, coa, available_stats, elo, talent, neutral_site=False):
     home_prof = profiles[(profiles["team"] == home_team) & (profiles["season"] == season)]
     away_prof = profiles[(profiles["team"] == away_team) & (profiles["season"] == season)]
     if home_prof.empty or away_prof.empty:
@@ -149,8 +171,15 @@ def _build_features(home_team, away_team, season, profiles, sp, rec, ret, coa, a
     f["away_new_coach"]     = a_new
     f["coach_win_pct_diff"] = h_wpct - a_wpct
 
-    # Home field advantage
-    f["home_field"] = 1
+    # Elo differential
+    f["elo_diff"] = _elo_val(elo, home_team, season) - _elo_val(elo, away_team, season)
+
+    # Talent composite differential
+    f["talent_diff"] = _talent_val(talent, home_team, season) - _talent_val(talent, away_team, season)
+
+    # Home field advantage (zeroed out for neutral-site games)
+    f["neutral_site"] = 1 if neutral_site else 0
+    f["home_field"]   = 0 if neutral_site else 1
 
     return f
 
@@ -161,34 +190,42 @@ def _build_features(home_team, away_team, season, profiles, sp, rec, ret, coa, a
 
 def build_training_data():
     games = query_db("""
-        SELECT "homeTeam", "awayTeam", "homePoints", "awayPoints", season
+        SELECT id, "homeTeam", "awayTeam", "homePoints", "awayPoints", season, "neutralSite"
         FROM games
         WHERE "homePoints" IS NOT NULL AND "awayPoints" IS NOT NULL
           AND "homeClassification" = 'fbs' AND "awayClassification" = 'fbs'
     """)
+
+    # Join pregame spread from pregame_wp on gameId
+    wp = query_db('SELECT "gameId", spread FROM pregame_wp')
+    games = games.merge(wp, left_on="id", right_on="gameId", how="left")
 
     profiles = build_team_profiles()
     key_stats = ["pointsPerGame", "passingYards", "rushingYards", "turnovers", "fumblesLost"]
     available_stats = [s for s in key_stats if s in profiles.columns]
     profiles = profiles[["team", "season"] + available_stats].fillna(0)
 
-    sp  = _load_sp()
-    rec = _load_recruiting()
-    ret = _load_returning()
-    coa = _load_coaches()
+    sp     = _load_sp()
+    rec    = _load_recruiting()
+    ret    = _load_returning()
+    coa    = _load_coaches()
+    elo    = _load_elo()
+    talent = _load_talent()
 
     records, sample_weights = [], []
 
     for _, game in games.iterrows():
         season = int(game["season"])
+        neutral = bool(game["neutralSite"])
         features = _build_features(
             game["homeTeam"], game["awayTeam"], season,
-            profiles, sp, rec, ret, coa, available_stats
+            profiles, sp, rec, ret, coa, available_stats, elo, talent, neutral
         )
         if features is None:
             continue
-        features["home_win"] = 1 if game["homePoints"] > game["awayPoints"] else 0
-        features["season"]   = season
+        features["spread_diff"] = float(game["spread"]) if pd.notna(game.get("spread")) else 0.0
+        features["home_win"]    = 1 if game["homePoints"] > game["awayPoints"] else 0
+        features["season"]      = season
         records.append(features)
         sample_weights.append(RECENCY_WEIGHTS.get(season, 1.0))
 
@@ -277,14 +314,16 @@ def predict_win_probability(home_team: str, away_team: str, season: int = 2024):
     available_stats = [s for s in key_stats if s in profiles.columns]
     profiles = profiles[["team", "season"] + available_stats].fillna(0)
 
-    sp  = _load_sp()
-    rec = _load_recruiting()
-    ret = _load_returning()
-    coa = _load_coaches()
+    sp     = _load_sp()
+    rec    = _load_recruiting()
+    ret    = _load_returning()
+    coa    = _load_coaches()
+    elo    = _load_elo()
+    talent = _load_talent()
 
     features = _build_features(
         home_team, away_team, season,
-        profiles, sp, rec, ret, coa, available_stats
+        profiles, sp, rec, ret, coa, available_stats, elo, talent, neutral_site=False
     )
 
     if features is None:
