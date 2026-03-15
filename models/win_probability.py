@@ -196,10 +196,6 @@ def build_training_data():
           AND "homeClassification" = 'fbs' AND "awayClassification" = 'fbs'
     """)
 
-    # Join pregame spread from pregame_wp on gameId
-    wp = query_db('SELECT "gameId", spread FROM pregame_wp')
-    games = games.merge(wp, left_on="id", right_on="gameId", how="left")
-
     profiles = build_team_profiles()
     key_stats = ["pointsPerGame", "passingYards", "rushingYards", "turnovers", "fumblesLost"]
     available_stats = [s for s in key_stats if s in profiles.columns]
@@ -223,8 +219,7 @@ def build_training_data():
         )
         if features is None:
             continue
-        features["spread_diff"] = float(game["spread"]) if pd.notna(game.get("spread")) else 0.0
-        features["home_win"]    = 1 if game["homePoints"] > game["awayPoints"] else 0
+        features["home_win"] = 1 if game["homePoints"] > game["awayPoints"] else 0
         features["season"]      = season
         records.append(features)
         sample_weights.append(RECENCY_WEIGHTS.get(season, 1.0))

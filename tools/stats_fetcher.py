@@ -44,7 +44,11 @@ def fetch_team_stats(year: int):
     return df
 
 def fetch_betting_lines(year: int):
-    """Fetch betting lines for a given year and save to the betting_lines table."""
+    """Fetch betting lines for a given year and save to the betting_lines table.
+
+    Explodes the nested lines list into one row per provider per game, then
+    averages across providers to produce one consensus row per game.
+    """
     url = f"{BASE_URL}/lines"
     params = {"year": year}
     response = requests.get(url, headers=HEADERS, params=params)
@@ -52,7 +56,39 @@ def fetch_betting_lines(year: int):
     if not isinstance(data, list) or len(data) == 0:
         print(f"No betting lines data for {year}")
         return pd.DataFrame()
-    df = pd.DataFrame(data)
+
+    rows = []
+    for game in data:
+        base = {
+            "game_id": game.get("id"),
+            "season": game.get("season"),
+            "week": game.get("week"),
+            "home_team": game.get("homeTeam"),
+            "away_team": game.get("awayTeam"),
+            "home_score": game.get("homeScore"),
+            "away_score": game.get("awayScore"),
+        }
+        for line in game.get("lines", []):
+            row = base.copy()
+            row["spread"] = line.get("spread")
+            row["spread_open"] = line.get("spreadOpen")
+            row["over_under"] = line.get("overUnder")
+            row["over_under_open"] = line.get("overUnderOpen")
+            row["home_moneyline"] = line.get("homeMoneyline")
+            row["away_moneyline"] = line.get("awayMoneyline")
+            rows.append(row)
+
+    numeric_cols = ["spread", "spread_open", "over_under", "over_under_open",
+                    "home_moneyline", "away_moneyline"]
+    id_cols = ["game_id", "season", "week", "home_team", "away_team",
+               "home_score", "away_score"]
+
+    df = pd.DataFrame(rows)
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+    df = (
+        df.groupby(id_cols, as_index=False)[numeric_cols]
+        .mean()
+    )
     save_to_db(df, "betting_lines")
     return df
 

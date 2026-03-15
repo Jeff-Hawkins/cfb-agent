@@ -2,8 +2,10 @@ from tools.stats_fetcher import (
     fetch_games, fetch_team_stats, fetch_betting_lines,
     fetch_sp_ratings, fetch_recruiting_rankings,
     fetch_returning_production, fetch_coaches,
+    fetch_portal_players, build_portal_net_ratings,
 )
 from db.database import query_db, engine
+from db.schema import create_all_tables
 from sqlalchemy import text
 from models.win_probability import predict_win_probability
 
@@ -14,6 +16,9 @@ FETCH_TABLES = [
 ]
 
 if __name__ == "__main__":
+    # Ensure all tables exist before truncating
+    create_all_tables()
+
     # Truncate all fetch tables for a clean rebuild
     with engine.connect() as conn:
         for table in FETCH_TABLES:
@@ -30,6 +35,8 @@ if __name__ == "__main__":
         fetch_recruiting_rankings(year)
         fetch_returning_production(year)
         fetch_coaches(year)
+        fetch_portal_players(year)
+        build_portal_net_ratings(year)
 
     print("\nTotal games in DB:")
     print(query_db("SELECT season, COUNT(*) as game_count FROM games GROUP BY season"))

@@ -116,8 +116,12 @@ def test_fetch_talent():
 
 
 def test_train_model():
-    """train_model() should save the model and feature_cols artifacts to disk,
-    and feature_cols must include the Elo and talent differential features."""
+    """train_model() should save the model and feature_cols artifacts to disk.
+
+    Asserts elo_diff and talent_diff are present (valid pre-game features) and
+    that spread_diff is absent (removed due to feature leakage — spread encodes
+    the outcome signal and is unavailable at true prediction time).
+    """
     train_model()
 
     assert os.path.exists("models/saved/win_prob_model.pkl"), "win_prob_model.pkl not found"
@@ -127,3 +131,4 @@ def test_train_model():
     feature_cols = joblib.load("models/saved/feature_cols.pkl")
     assert "elo_diff" in feature_cols, "'elo_diff' missing from feature_cols"
     assert "talent_diff" in feature_cols, "'talent_diff' missing from feature_cols"
+    assert "spread_diff" not in feature_cols, "'spread_diff' must not be in feature_cols (feature leakage)"
