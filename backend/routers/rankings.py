@@ -30,5 +30,6 @@ def get_rankings():
 
     df.insert(0, "rank", range(1, len(df) + 1))
     df["composite_rating"] = df["composite_rating"].round(2)
+    df = df.fillna("")
 
     return df.to_dict(orient="records")
