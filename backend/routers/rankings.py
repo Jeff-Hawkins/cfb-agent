@@ -25,6 +25,7 @@ def get_rankings():
         FROM preseason_2026 p
         LEFT JOIN sp_ratings s
             ON p.team = s.team AND s.year = 2025
+        WHERE p.team != 'nationalAverages'
         ORDER BY p.composite_100 DESC
     """)
 
