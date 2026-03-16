@@ -26,10 +26,10 @@
 | ORM / DB Layer | SQLAlchemy + psycopg2-binary |
 | Data | College Football Data API (free tier) |
 | Backend | FastAPI — deployed on Railway |
-| Frontend (current) | Streamlit (deployed on Streamlit Cloud) |
-| Frontend (planned) | React + Vite + Tailwind + shadcn/ui — Phase 4 |
-| Hosting | Railway (backend), Vercel (frontend, planned) |
-| CI/CD (planned) | GitHub Actions |
+| Frontend | React + Vite + Tailwind + shadcn/ui — deployed on Vercel |
+| Auth | Supabase Auth (email/password) |
+| Email | SendGrid |
+| CI/CD | GitHub Actions |
 
 ---
 
@@ -42,7 +42,9 @@ cfb-agent/
 │   └── stats_fetcher.py
 ├── db/
 │   ├── database.py
-│   └── schema.py
+│   ├── schema.py
+│   └── migrations/
+│       └── 002_picks_table.sql
 ├── models/
 │   ├── win_probability.py
 │   ├── preseason_ratings.py
@@ -63,30 +65,45 @@ cfb-agent/
 │   │   ├── win_probability.py
 │   │   ├── preseason_ratings.py
 │   │   └── saved/
-│   └── routers/
-│       ├── __init__.py
-│       ├── matchup.py
-│       ├── rankings.py
-│       └── games.py
-├── frontend/                       # Phase 4 ✅ — React frontend
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── matchup.py
+│   │   ├── rankings.py
+│   │   ├── games.py
+│   │   └── picks.py                # Phase 4.5
+│   └── services/
+│       └── notifications.py        # Phase 4.5 — SendGrid email
+├── frontend/                       # React frontend — deployed on Vercel
 │   ├── src/
 │   │   ├── api/client.js
+│   │   ├── lib/
+│   │   │   └── supabase.js         # Phase 4.5 — Supabase client
 │   │   ├── components/
-│   │   │   ├── Navbar.jsx
+│   │   │   ├── Navbar.jsx          # Phase 4.5 — auth-aware
+│   │   │   ├── ProtectedRoute.jsx  # Phase 4.5
 │   │   │   ├── WinProbGauge.jsx
 │   │   │   ├── ConfidenceBadge.jsx
 │   │   │   ├── GameCard.jsx
 │   │   │   └── LoadingSkeleton.jsx
 │   │   ├── pages/
 │   │   │   ├── SchedulePage.jsx
-│   │   │   └── RankingsPage.jsx
+│   │   │   ├── RankingsPage.jsx
+│   │   │   ├── LoginPage.jsx       # Phase 4.5
+│   │   │   └── admin/
+│   │   │       ├── PendingPicksPage.jsx   # Phase 4.5
+│   │   │       └── PickHistoryPage.jsx    # Phase 4.5
 │   │   ├── App.jsx
 │   │   ├── main.jsx
 │   │   └── index.css
 │   ├── .env
+│   ├── vercel.json                 # SPA rewrite rule
 │   └── vite.config.js
+├── .github/
+│   └── workflows/
+│       └── weekly_pipeline.yml     # Phase 4.5 — Tue flag + Sun outcomes
 ├── tests/
-│   └── test_api.py
+│   ├── test_api.py
+│   └── test_picks.py               # Phase 4.5 — 19 tests
 ├── app.py                          # Streamlit UI (legacy)
 ├── main.py
 ├── .env                            # Never commit — credentials here
@@ -120,13 +137,26 @@ cfb-agent/
 - `backend/routers/`: `matchup.py`, `rankings.py`, `games.py`
 - `tests/test_api.py`
 
-### Phase 4 ✅
+### Phase 4 (commit `eb715ed`) ✅
 - React + Vite + Tailwind frontend built
 - Pages: SchedulePage (games by week, win prob on click), RankingsPage (sortable, conference filter)
 - Components: Navbar, GameCard, WinProbGauge, ConfidenceBadge, LoadingSkeleton
-- Bug fix: GameCard reads `home_win_probability` (not `home_win_prob`)
-- Tested locally at localhost:5173 — all endpoints working
-- Vercel deploy pending
+- Vercel deploy pending (env vars needed)
+
+### Phase 4.5 (commits `abc05a3`, `1ca521b`, `6f5925f`) ✅
+- **picks table** — `db/migrations/002_picks_table.sql` — run against Supabase ✅
+- **`/picks` router** — flag, pending, approve, reject, approved, update-outcomes
+  - Flag logic: win_prob >= 0.65 AND model_spread_diff >= 3.0
+  - model_implied_spread = (home_win_prob - 0.5) * 28
+  - Confidence labels: Lean (65–74%), Moderate (75–84%), Strong (85%+)
+  - All POST endpoints require Bearer token (ADMIN_API_KEY)
+  - Performance fix: model + all 6 data tables pre-loaded once per request (not per game)
+- **SendGrid notifications** — `backend/services/notifications.py`
+- **Admin UI** — LoginPage, ProtectedRoute, PendingPicksPage, PickHistoryPage
+- **Auth-aware Navbar** — shows Admin/History/Logout when session active
+- **GitHub Actions** — `weekly_pipeline.yml`: Tue 11PM ET flag-picks, Sun 10AM ET update-outcomes
+- **19 tests passing** — `tests/test_picks.py`
+- **Tested live**: `/picks/flag?season=2025&week=1` → `{"flagged": 38}` ✅
 
 ### Railway Deploy ✅
 - Live URL: `https://cfb-agent-production.up.railway.app`
@@ -135,24 +165,38 @@ cfb-agent/
 - `sqlalchemy` and `psycopg2-binary` in `backend/requirements.txt`
 - `DATABASE_URL` uses Supabase Transaction Pooler (port 6543, IPv4 compatible)
 - `backend/db/` and `backend/models/` copied into backend for Railway self-containment
-- All endpoints tested live:
-  - `/health` → `{"status":"ok"}`
-  - `/rankings` → 136 FBS teams, `nationalAverages` filtered, `fillna("")` applied
-  - `/matchup?home=Georgia&away=Ohio+State&season=2025` → win probabilities
-  - `/games?week=1` → 2025 regular season FBS games by week
+- All endpoints tested live
 
 ---
 
 ## Current Phase
 
-### Next: Vercel Deploy 🔄
+### Next: Vercel Deploy + Phase 5 Prep 🔄
 
+**Vercel deploy checklist:**
 1. Sign in to vercel.com with GitHub
-2. Import `cfb-agent` repo
-3. Root directory: `frontend`
-4. Build command: `npm run build`
-5. Output directory: `dist`
-6. Env var: `VITE_API_URL=https://cfb-agent-production.up.railway.app`
+2. Import `cfb-agent` repo — root directory: `frontend`
+3. Build command: `npm run build` | Output: `dist`
+4. Set env vars in Vercel dashboard:
+   ```
+   VITE_API_URL=https://cfb-agent-production.up.railway.app
+   VITE_SUPABASE_URL=
+   VITE_SUPABASE_ANON_KEY=
+   VITE_ADMIN_API_KEY=
+   ```
+
+**Railway secrets still needed:**
+```
+SENDGRID_API_KEY=
+NOTIFY_EMAIL=
+ADMIN_API_KEY=        ← already set
+```
+
+**GitHub Actions secrets needed:**
+```
+RAILWAY_BACKEND_URL=https://cfb-agent-production.up.railway.app
+ADMIN_API_KEY=
+```
 
 ---
 
@@ -160,10 +204,9 @@ cfb-agent/
 
 | Phase | Description |
 |---|---|
-| 4.5 | Pick review UI, value flag logic, Claude Sonnet draft pipeline |
-| 5 | Deploy + swap Groq → Claude Sonnet |
+| 5 | Deploy Vercel + swap Groq → Claude Sonnet |
 | 6 | Bayesian updating + Platt scaling |
-| 7 | Line value engine + spread_diff + weather |
+| 7 | Line value engine + spread_diff + weather; tighten flag threshold (consider abs(spread) > 20 filter) |
 | Launch | Late August 2026 |
 
 ---
@@ -185,6 +228,7 @@ cfb-agent/
 - LightGBM | 21 features | Train 2021–2024 | Test 2025
 - Accuracy: 78.22% | Brier: 0.1569
 - Known limits: no injury/rankings/momentum data
+- Calibration: well-calibrated 0.3–0.7; overconfident at extremes (>0.9 predicted → ~90.6% actual). Platt scaling deferred to Phase 6.
 
 ### Preseason Composite
 - 72.87% backtest accuracy (2024)
@@ -202,6 +246,7 @@ cfb-agent/
 | Weather | 7 |
 | Groq → Claude Sonnet | 5 |
 | Bayesian updating | 6 |
+| Flag threshold tuning (abs(spread) > 20 filter) | 7 |
 | 2026 schedule (swap from 2025 demo) | When CFB API publishes it |
 
 ---
@@ -231,11 +276,17 @@ DATABASE_URL=postgresql://postgres.loditcbewcpangrqgahd:[password]@aws-1-us-east
 **Railway dashboard**
 ```
 DATABASE_URL=postgresql://postgres.loditcbewcpangrqgahd:[password]@aws-1-us-east-1.pooler.supabase.com:6543/postgres
+ADMIN_API_KEY=
+SENDGRID_API_KEY=
+NOTIFY_EMAIL=
 ```
 
-**Vercel dashboard (Phase 4)**
+**Vercel dashboard**
 ```
 VITE_API_URL=https://cfb-agent-production.up.railway.app
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+VITE_ADMIN_API_KEY=
 ```
 
 ---
@@ -251,4 +302,4 @@ VITE_API_URL=https://cfb-agent-production.up.railway.app
 
 ---
 
-*Last updated: Railway deploy complete. Phase 4 (React frontend) active.*
+*Last updated: Phase 4.5 complete. picks table live, 38 picks flagged for Week 1 2025. Vercel deploy pending.*
