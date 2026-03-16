@@ -68,6 +68,23 @@ cfb-agent/
 │       ├── matchup.py
 │       ├── rankings.py
 │       └── games.py
+├── frontend/                       # Phase 4 ✅ — React frontend
+│   ├── src/
+│   │   ├── api/client.js
+│   │   ├── components/
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── WinProbGauge.jsx
+│   │   │   ├── ConfidenceBadge.jsx
+│   │   │   ├── GameCard.jsx
+│   │   │   └── LoadingSkeleton.jsx
+│   │   ├── pages/
+│   │   │   ├── SchedulePage.jsx
+│   │   │   └── RankingsPage.jsx
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css
+│   ├── .env
+│   └── vite.config.js
 ├── tests/
 │   └── test_api.py
 ├── app.py                          # Streamlit UI (legacy)
@@ -75,8 +92,6 @@ cfb-agent/
 ├── .env                            # Never commit — credentials here
 └── CLAUDE.md                       # This file
 ```
-
-> Phase 4 will add `/frontend` — repo becomes full mono-repo.
 
 ---
 
@@ -105,6 +120,14 @@ cfb-agent/
 - `backend/routers/`: `matchup.py`, `rankings.py`, `games.py`
 - `tests/test_api.py`
 
+### Phase 4 ✅
+- React + Vite + Tailwind frontend built
+- Pages: SchedulePage (games by week, win prob on click), RankingsPage (sortable, conference filter)
+- Components: Navbar, GameCard, WinProbGauge, ConfidenceBadge, LoadingSkeleton
+- Bug fix: GameCard reads `home_win_probability` (not `home_win_prob`)
+- Tested locally at localhost:5173 — all endpoints working
+- Vercel deploy pending
+
 ### Railway Deploy ✅
 - Live URL: `https://cfb-agent-production.up.railway.app`
 - Dockerfile used (nixpacks could not resolve libgomp)
@@ -122,35 +145,14 @@ cfb-agent/
 
 ## Current Phase
 
-### Phase 4 — React + Tailwind + shadcn/ui Frontend 🔄
+### Next: Vercel Deploy 🔄
 
-**Goal:** Build a production-quality React frontend consuming the live Railway backend.
-
-**Design:**
-- Theme: Dark + Gold (`#0a0a0a` bg, `#C9A84C` gold, `#111111` cards, `#FFFFFF` text)
-- Font: Inter
-- Mobile responsive
-- Plain JSX only — no TypeScript
-
-**Pages:**
-- **Schedule Page** — 2025 games by week (week selector), clickable game cards showing win probability on click. FCS opponents labeled. Swaps to 2026 when data available.
-- **Power Rankings Page** — sortable table of 136 FBS teams, conference filter, top 25 gold left border
-
-**Components:**
-- `Navbar.jsx` — tabs: Schedule | Power Rankings
-- `WinProbGauge.jsx` — Recharts RadialBarChart
-- `ConfidenceBadge.jsx` — toss-up/lean/moderate/strong
-- `GameCard.jsx` — clickable game card
-
-**API client (`src/api/client.js`):**
-- `getGames(week)` → `GET /games?week=X`
-- `getMatchup(home, away, season)` → `GET /matchup`
-- `getRankings()` → `GET /rankings`
-
-**Stack:** React + Vite + Tailwind + shadcn/ui + Recharts + react-router-dom
-**Env var:** `VITE_API_URL=https://cfb-agent-production.up.railway.app`
-**Lives in:** `/frontend`
-**Deploy:** Vercel (root `/frontend`, build `npm run build`, output `dist`)
+1. Sign in to vercel.com with GitHub
+2. Import `cfb-agent` repo
+3. Root directory: `frontend`
+4. Build command: `npm run build`
+5. Output directory: `dist`
+6. Env var: `VITE_API_URL=https://cfb-agent-production.up.railway.app`
 
 ---
 
