@@ -82,8 +82,13 @@ def flag_picks(
     consensus betting lines. Flags picks where win_probability >= 0.65 AND
     model_spread_diff >= 3.0. Inserts into picks table (skips duplicates).
     Sends email notification when at least one pick is flagged.
+
+    Performance note: model and all data tables are loaded once before the
+    game loop to avoid ~300+ redundant DB queries and file loads.
     """
-    from models.win_probability import predict_win_probability
+    import os
+    import joblib
+    import pandas as pd
     from services.notifications import send_picks_ready_email
 
     games_df = query_db(f"""
@@ -103,17 +108,58 @@ def flag_picks(
         FROM betting_lines
         WHERE season = {season} AND week = {week}
     """)
-    # Map game_id (string) → consensus spread
     lines_map = dict(zip(lines_df["game_id"].astype(str), lines_df["spread"]))
+
+    # Pre-load model and all reference tables once — reused for every game
+    if season == 2026:
+        from models.win_probability import _predict_from_preseason_composite as _preseason_pred
+        _model = None
+        _feature_cols = None
+        _profiles = _sp = _rec = _ret = _coa = _elo = _talent = _available_stats = None
+    else:
+        from models.win_probability import (
+            build_team_profiles,
+            _load_sp, _load_recruiting, _load_returning,
+            _load_coaches, _load_elo, _load_talent,
+            _build_features,
+        )
+        _saved = os.path.join(os.path.dirname(__file__), "..", "models", "saved")
+        _model        = joblib.load(os.path.join(_saved, "win_prob_model.pkl"))
+        _feature_cols = joblib.load(os.path.join(_saved, "feature_cols.pkl"))
+
+        _profiles = build_team_profiles()
+        _key_stats = ["pointsPerGame", "passingYards", "rushingYards", "turnovers", "fumblesLost"]
+        _available_stats = [s for s in _key_stats if s in _profiles.columns]
+        _profiles = _profiles[["team", "season"] + _available_stats].fillna(0)
+
+        _sp     = _load_sp()
+        _rec    = _load_recruiting()
+        _ret    = _load_returning()
+        _coa    = _load_coaches()
+        _elo    = _load_elo()
+        _talent = _load_talent()
 
     flagged = []
 
     for _, game in games_df.iterrows():
         game_id = str(game["id"])
-        home = game["homeTeam"]
-        away = game["awayTeam"]
+        home    = game["homeTeam"]
+        away    = game["awayTeam"]
+        neutral = bool(game["neutralSite"])
 
-        home_win_prob = predict_win_probability(home, away, season)
+        # Predict using pre-loaded data
+        if season == 2026:
+            home_win_prob = _preseason_pred(home, away, "preseason_2026")
+        else:
+            feats = _build_features(
+                home, away, season,
+                _profiles, _sp, _rec, _ret, _coa, _available_stats, _elo, _talent, neutral,
+            )
+            if feats is None:
+                logger.warning("No features for %s vs %s %d", home, away, season)
+                continue
+            home_win_prob = float(_model.predict_proba(pd.DataFrame([feats])[_feature_cols])[0][1])
+
         if isinstance(home_win_prob, str):
             logger.warning("No prediction for %s vs %s: %s", home, away, home_win_prob)
             continue
