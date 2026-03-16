@@ -1,6 +1,6 @@
 """FastAPI application entry point for the CFB agent backend.
 
-Mounts the /matchup and /rankings routers and exposes a /health endpoint.
+Mounts the /matchup, /rankings, and /games routers and exposes a /health endpoint.
 Adds the repo root to sys.path so routers can import from models/ and db/.
 """
 
@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import matchup, rankings
+from routers import matchup, rankings, games
 
 app = FastAPI(title="CFB Agent API", version="2.0")
 
@@ -24,6 +24,7 @@ app.add_middleware(
 
 app.include_router(matchup.router, prefix="/matchup", tags=["matchup"])
 app.include_router(rankings.router, prefix="/rankings", tags=["rankings"])
+app.include_router(games.router, prefix="/games", tags=["games"])
 
 
 @app.get("/health")
