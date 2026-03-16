@@ -22,13 +22,13 @@
 | Language | Python 3.x (Anaconda) |
 | ML Model | LightGBM |
 | Agent Orchestrator | LangGraph + Groq `llama-3.3-70b-versatile` (temp=0.1) |
-| Database | Supabase (PostgreSQL) — project `cfb-agent`, East US N.Virginia |
-| ORM / DB Layer | SQLAlchemy |
+| Database | Supabase (PostgreSQL) — project `cfb-agent`, East US N.Virginia, free plan |
+| ORM / DB Layer | SQLAlchemy + psycopg2-binary |
 | Data | College Football Data API (free tier) |
-| Backend | FastAPI — deployed Phase 3 ✅ |
+| Backend | FastAPI — deployed on Railway |
 | Frontend (current) | Streamlit (deployed on Streamlit Cloud) |
-| Frontend (planned) | React + Tailwind + shadcn/ui + Vite — Phase 4 |
-| Hosting (planned) | Railway (backend), Vercel (frontend) |
+| Frontend (planned) | React + Vite + Tailwind + shadcn/ui — Phase 4 |
+| Hosting | Railway (backend), Vercel (frontend, planned) |
 | CI/CD (planned) | GitHub Actions |
 
 ---
@@ -46,23 +46,37 @@ cfb-agent/
 ├── models/
 │   ├── win_probability.py
 │   ├── preseason_ratings.py
-│   └── saved/               # win_prob_model.pkl, feature_cols.pkl
-├── backend/                 # Phase 3 ✅
-│   ├── main.py              # FastAPI app, CORS, /health
-│   ├── routers/
-│   │   ├── matchup.py       # GET /matchup?home=X&away=Y&season=N
-│   │   └── rankings.py      # GET /rankings
-│   └── requirements.txt
+│   └── saved/
+│       ├── win_prob_model.pkl
+│       └── feature_cols.pkl
 ├── agent/
 │   └── orchestrator.py
+├── backend/                        # FastAPI — deployed on Railway
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── nixpacks.toml
+│   ├── db/                         # copied from root db/ for Railway
+│   │   ├── database.py
+│   │   └── schema.py
+│   ├── models/                     # copied from root models/ for Railway
+│   │   ├── win_probability.py
+│   │   ├── preseason_ratings.py
+│   │   └── saved/
+│   └── routers/
+│       ├── __init__.py
+│       ├── matchup.py
+│       ├── rankings.py
+│       └── games.py
 ├── tests/
-│   ├── test_database.py     # 10 tests
-│   └── test_api.py          # 4 tests
-├── app.py                   # Streamlit UI
+│   └── test_api.py
+├── app.py                          # Streamlit UI (legacy)
 ├── main.py
-├── .env                     # Never commit — credentials here
-└── CLAUDE.md                # This file
+├── .env                            # Never commit — credentials here
+└── CLAUDE.md                       # This file
 ```
+
+> Phase 4 will add `/frontend` — repo becomes full mono-repo.
 
 ---
 
@@ -76,128 +90,163 @@ cfb-agent/
 ### Phase 1B (commit `6297c92`) ✅
 - Added tables: `elo_ratings`, `talent`, `advanced_stats`, `drives`, `pregame_wp`
 - `neutral_site` field confirmed
-- Weather integration deferred — Phase 7
+- Weather deferred — Phase 7
 - 9 tests passing
 
 ### Phase 2 (commit `5383438`) ✅
-- LightGBM retrained — `spread_diff` **removed** (feature leakage)
-- 22 features: SP+ differentials, 3yr recruiting avg, returning production (`percentPPA`) with conference multipliers, portal net with eligibility weighting, coaching signals, recency weighting (2025=1.0 → 2021=0.2), home field, `elo_diff`, `talent_diff`, `neutral_site`
-- Holdout accuracy: **78.22%** | Brier score: **0.1569**
-- Calibration solid 0.3–0.7; slight overconfidence >0.9
-- `betting_lines` flat schema: one consensus row per game, averaged across DraftKings/Bovada/ESPN Bet
+- LightGBM retrained — `spread_diff` removed (feature leakage)
+- 21 features: SP+ differentials, 3yr recruiting avg, returning production, portal net, coaching signals, recency weighting, home field, `elo_diff`, `talent_diff`, `neutral_site`
+- Holdout accuracy: **78.22%** | Brier: **0.1569**
 - 10 tests passing
 
 ### Phase 3 (commit `f893849`) ✅
-- FastAPI backend live at `http://127.0.0.1:8000`
-- `GET /health` — liveness check
-- `GET /matchup?home=X&away=Y&season=N` — win probability via LightGBM
-- `GET /rankings` — 2026 preseason composite ratings, all 137 FBS teams, with conference via sp_ratings join
-- Model paths use `os.path.dirname(__file__)` — safe to run from any working directory
-- 4 API tests passing (14 total)
-- Deploy target: Railway (root `/backend`)
+- FastAPI backend complete
+- Endpoints: `GET /health`, `GET /matchup`, `GET /rankings`, `GET /games`
+- `backend/routers/`: `matchup.py`, `rankings.py`, `games.py`
+- `tests/test_api.py`
+
+### Railway Deploy ✅
+- Live URL: `https://cfb-agent-production.up.railway.app`
+- Dockerfile used (nixpacks could not resolve libgomp)
+- `libgomp1` installed via apt in Dockerfile for LightGBM
+- `sqlalchemy` and `psycopg2-binary` in `backend/requirements.txt`
+- `DATABASE_URL` uses Supabase Transaction Pooler (port 6543, IPv4 compatible)
+- `backend/db/` and `backend/models/` copied into backend for Railway self-containment
+- All endpoints tested live:
+  - `/health` → `{"status":"ok"}`
+  - `/rankings` → 136 FBS teams, `nationalAverages` filtered, `fillna("")` applied
+  - `/matchup?home=Georgia&away=Ohio+State&season=2025` → win probabilities
+  - `/games?week=1` → 2025 regular season FBS games by week
 
 ---
 
 ## Current Phase
 
-### Phase 4 — React Frontend 🔄
+### Phase 4 — React + Tailwind + shadcn/ui Frontend 🔄
 
-**Goal:** Replace Streamlit with a React + Tailwind + shadcn/ui + Vite frontend that consumes the Phase 3 FastAPI backend.
+**Goal:** Build a production-quality React frontend consuming the live Railway backend.
 
-**Planned views:**
-- Matchup lookup (home vs. away win probability)
-- Rankings table (2026 preseason composite, all 137 teams)
-- Picks tracker (ATS/ROI/CLV dashboard)
-- Games feed (upcoming games with model predictions)
+**Design:**
+- Theme: Dark + Gold (`#0a0a0a` bg, `#C9A84C` gold, `#111111` cards, `#FFFFFF` text)
+- Font: Inter
+- Mobile responsive
+- Plain JSX only — no TypeScript
 
-**Frontend will live in:** `/frontend` (mono-repo)
-**Deploy target:** Vercel
+**Pages:**
+- **Schedule Page** — 2025 games by week (week selector), clickable game cards showing win probability on click. FCS opponents labeled. Swaps to 2026 when data available.
+- **Power Rankings Page** — sortable table of 136 FBS teams, conference filter, top 25 gold left border
+
+**Components:**
+- `Navbar.jsx` — tabs: Schedule | Power Rankings
+- `WinProbGauge.jsx` — Recharts RadialBarChart
+- `ConfidenceBadge.jsx` — toss-up/lean/moderate/strong
+- `GameCard.jsx` — clickable game card
+
+**API client (`src/api/client.js`):**
+- `getGames(week)` → `GET /games?week=X`
+- `getMatchup(home, away, season)` → `GET /matchup`
+- `getRankings()` → `GET /rankings`
+
+**Stack:** React + Vite + Tailwind + shadcn/ui + Recharts + react-router-dom
+**Env var:** `VITE_API_URL=https://cfb-agent-production.up.railway.app`
+**Lives in:** `/frontend`
+**Deploy:** Vercel (root `/frontend`, build `npm run build`, output `dist`)
 
 ---
 
-## Upcoming Phases (Roadmap)
+## Upcoming Phases
 
-| Phase | Description | Target |
-|---|---|---|
-| 4 | React + Tailwind + shadcn/ui frontend | Next |
-| 4.5 | Pick review UI, value flag logic, Claude Sonnet draft pipeline | After Phase 4 |
-| 5 | Deploy + swap Groq → Claude Sonnet as agent LLM | After Phase 4 |
-| 6 | Bayesian in-season updating + Platt scaling calibration | Mid-season |
-| 7 | Line value engine + `spread_diff` re-introduced + weather integration | Pre-launch |
-| Launch | Target late August 2026 | — |
+| Phase | Description |
+|---|---|
+| 4.5 | Pick review UI, value flag logic, Claude Sonnet draft pipeline |
+| 5 | Deploy + swap Groq → Claude Sonnet |
+| 6 | Bayesian updating + Platt scaling |
+| 7 | Line value engine + spread_diff + weather |
+| Launch | Late August 2026 |
 
 ---
 
 ## Conventions & Non-Negotiables
 
-- **Tests are required** before any function ships — no exceptions
-- **Docstrings on every module** — always
-- **Never hardcode credentials** — all secrets via `.env` and Railway env vars
-- **No spaghetti** — clean separation of concerns; DB logic in `db/`, model logic in `models/`, agent logic in `agent/`
-- **Honest model framing** — known limits (no injury/rankings/momentum data) are surfaced as features, not hidden
-- **Commit messages:** Never add Co-Authored-By lines
+- **Tests required** before any function ships
+- **Docstrings on every module**
+- **Never hardcode credentials** — `.env` locally, Railway/Vercel dashboards in prod
+- **No Co-Authored-By in commits** — never
+- **backend/ is self-contained** — any root module used by API must be copied into `backend/`
+- **Honest model framing** — surface known limits, don't hide them
 
 ---
 
 ## Model Details
 
-### Win Probability Model
-- **Algorithm:** LightGBM
-- **Features (22):** SP+ differentials, 3yr recruiting avg, returning production with conference multipliers, portal net with eligibility weighting, coaching signals, recency weighting, home field, `elo_diff`, `talent_diff`, `neutral_site`
-- **Train:** 2021–2024 | **Test:** 2025
-- **Holdout accuracy:** 78.22% | **Brier:** 0.1569
-- **Known limits:** No injury data, no rankings/momentum signals
-- **Params:** `num_leaves=31`, `min_child_samples=20`, `reg_alpha/lambda=0.1`, `subsample=0.8`
+### Win Probability
+- LightGBM | 21 features | Train 2021–2024 | Test 2025
+- Accuracy: 78.22% | Brier: 0.1569
+- Known limits: no injury/rankings/momentum data
 
-### Preseason Composite Ratings
-- **Backtest accuracy (2024):** 72.87%
-- **Weights:** SP+ 25%, Recruiting 20%, Returning production 20%, Portal net 20%, Coach effectiveness 15%
-- **Coverage:** 2026 ratings live for all 137 FBS teams
+### Preseason Composite
+- 72.87% backtest accuracy (2024)
+- Weights: SP+ 25%, Recruiting 20%, Returning prod 20%, Portal 20%, Coach 15%
+- 136 FBS teams rated for 2026
 
 ---
 
-## Deferred Decisions (Do Not Implement Early)
+## Deferred Decisions
 
-| Item | Deferred To |
+| Item | Phase |
 |---|---|
-| `spread_diff` as live feature | Phase 7 (line value engine) |
-| Platt scaling / calibration fix | Phase 6 |
-| Weather integration | Phase 7 |
-| Groq → Claude Sonnet swap | Phase 5 |
-| Bayesian in-season updating | Phase 6 |
+| `spread_diff` as live feature | 7 |
+| Platt scaling | 6 |
+| Weather | 7 |
+| Groq → Claude Sonnet | 5 |
+| Bayesian updating | 6 |
+| 2026 schedule (swap from 2025 demo) | When CFB API publishes it |
 
 ---
 
-## Environment Variables (Never Commit)
+## Railway Deploy Notes
 
+- Root directory: `backend`
+- Dockerfile used — do NOT switch to nixpacks
+- Start command: blank (Dockerfile CMD handles it)
+- Do NOT set PORT variable in Railway dashboard
+- New backend dependencies → `backend/requirements.txt`
+- New root modules used by backend → copy into `backend/`
+
+---
+
+## Environment Variables
+
+**Local `.env`**
 ```
 SUPABASE_URL=
 SUPABASE_KEY=
 CFB_API_KEY=
 GROQ_API_KEY=
-ANTHROPIC_API_KEY=       # Needed Phase 5+
+DATABASE_URL=postgresql://postgres.loditcbewcpangrqgahd:[password]@aws-1-us-east-1.pooler.supabase.com:6543/postgres
 ```
 
----
+**Railway dashboard**
+```
+DATABASE_URL=postgresql://postgres.loditcbewcpangrqgahd:[password]@aws-1-us-east-1.pooler.supabase.com:6543/postgres
+```
 
-## Monetization Context
-
-- **Strategy:** Content-first → audience → subscriptions
-- **CLV (Closing Line Value)** is the primary credibility metric — not raw accuracy
-- **Pick tracking** feeds the public CLV dashboard — subscriber magnet
-- **Content automation:** Weekly Claude Sonnet drafts LinkedIn/X posts for Jeff's review (Season 1 = human-reviewed, not fully automated)
-- **Launch target:** Late August 2026 (before CFB season kickoff)
+**Vercel dashboard (Phase 4)**
+```
+VITE_API_URL=https://cfb-agent-production.up.railway.app
+```
 
 ---
 
 ## Claude Code Workflow
 
 - Design + spec full phase in chat first
-- Produce a single structured batch prompt for Claude Code
+- Produce single structured batch prompt for Claude Code
 - Claude Code executes full module in one session
 - Return to chat to review, commit, plan next phase
-- **Never iterate one function at a time** — full module specs only
+- Never iterate one function at a time
+- No Co-Authored-By in commits
 
 ---
 
-*Last updated: Phase 3 complete. Phase 4 (React frontend) next.*
+*Last updated: Railway deploy complete. Phase 4 (React frontend) active.*
