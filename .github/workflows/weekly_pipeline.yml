@@ -1,0 +1,114 @@
+name: CFB Agent Weekly Pipeline
+
+on:
+  schedule:
+    # stats-refresh + flag-picks: Tuesday 11 PM ET = Wednesday 03:00 UTC
+    - cron: "0 1 * * 3"   # stats-refresh  (Tue 9 PM ET)
+    - cron: "0 3 * * 3"   # flag-picks     (Tue 11 PM ET)
+    # outcome updates: Sunday 10 AM ET = Sunday 14:00 UTC
+    - cron: "0 14 * * 0"  # update-outcomes
+  workflow_dispatch:       # allow manual trigger
+
+env:
+  RAILWAY_BACKEND_URL: ${{ secrets.RAILWAY_BACKEND_URL }}
+  ADMIN_API_KEY:       ${{ secrets.ADMIN_API_KEY }}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Compute current CFB week (season starts first Saturday of September)
+  # ─────────────────────────────────────────────────────────────────────────────
+  compute-week:
+    runs-on: ubuntu-latest
+    outputs:
+      current_week: ${{ steps.week.outputs.current_week }}
+      last_week:    ${{ steps.week.outputs.last_week }}
+    steps:
+      - name: Calculate CFB week number
+        id: week
+        run: |
+          python3 - <<'EOF'
+          import datetime, math, os
+
+          today = datetime.date.today()
+          year  = today.year
+
+          # First Saturday of September
+          sep1 = datetime.date(year, 9, 1)
+          days_to_sat = (5 - sep1.weekday()) % 7   # Saturday = weekday 5
+          season_start = sep1 + datetime.timedelta(days=days_to_sat)
+
+          delta = (today - season_start).days
+          if delta < 0:
+              current_week = 1
+          else:
+              current_week = math.floor(delta / 7) + 1
+              current_week = min(max(current_week, 1), 15)
+
+          last_week = max(current_week - 1, 1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"current_week={current_week}\n")
+              f.write(f"last_week={last_week}\n")
+
+          print(f"Season start: {season_start} | Current week: {current_week} | Last week: {last_week}")
+          EOF
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1: stats-refresh — runs Tuesday 9 PM ET (cron "0 1 * * 3")
+  # ─────────────────────────────────────────────────────────────────────────────
+  stats-refresh:
+    runs-on: ubuntu-latest
+    needs: compute-week
+    if: github.event.schedule == '0 1 * * 3' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Refresh stats for current week
+        run: |
+          CURRENT_WEEK=${{ needs.compute-week.outputs.current_week }}
+          echo "Refreshing stats for week $CURRENT_WEEK..."
+          curl -s -f -X POST \
+            "$RAILWAY_BACKEND_URL/picks/flag?season=2025&week=$CURRENT_WEEK" \
+            -H "Authorization: Bearer $ADMIN_API_KEY" \
+            | tee /dev/stderr | python3 -c "import sys,json; d=json.load(sys.stdin); print('Stats refresh OK')"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2: flag-picks — runs Tuesday 11 PM ET (cron "0 3 * * 3")
+  # ─────────────────────────────────────────────────────────────────────────────
+  flag-picks:
+    runs-on: ubuntu-latest
+    needs: [compute-week, stats-refresh]
+    if: github.event.schedule == '0 3 * * 3' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Flag picks for current week
+        run: |
+          CURRENT_WEEK=${{ needs.compute-week.outputs.current_week }}
+          echo "Flagging picks for 2025 week $CURRENT_WEEK..."
+          RESPONSE=$(curl -s -X POST \
+            "$RAILWAY_BACKEND_URL/picks/flag?season=2025&week=$CURRENT_WEEK" \
+            -H "Authorization: Bearer $ADMIN_API_KEY")
+          echo "Response: $RESPONSE"
+          FLAGGED=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('flagged', 0))")
+          echo "Picks flagged: $FLAGGED"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 3: update-outcomes — runs Sunday 10 AM ET (cron "0 14 * * 0")
+  # ─────────────────────────────────────────────────────────────────────────────
+  update-outcomes:
+    runs-on: ubuntu-latest
+    needs: compute-week
+    if: github.event.schedule == '0 14 * * 0' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Update outcomes for last week
+        run: |
+          LAST_WEEK=${{ needs.compute-week.outputs.last_week }}
+          echo "Updating outcomes for 2025 week $LAST_WEEK..."
+          RESPONSE=$(curl -s -X POST \
+            "$RAILWAY_BACKEND_URL/picks/update-outcomes?season=2025&week=$LAST_WEEK" \
+            -H "Authorization: Bearer $ADMIN_API_KEY")
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print(f\"Updated: {d.get('updated',0)}  Pending: {d.get('pending',0)}\")
+          if d.get('retry'):
+              print('WARNING: Some outcomes still pending — scores not yet available. Re-run later.')
+          "

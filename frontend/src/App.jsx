@@ -1,7 +1,11 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Navbar from './components/Navbar'
+import ProtectedRoute from './components/ProtectedRoute'
 import SchedulePage from './pages/SchedulePage'
 import RankingsPage from './pages/RankingsPage'
+import LoginPage from './pages/LoginPage'
+import PendingPicksPage from './pages/admin/PendingPicksPage'
+import PickHistoryPage from './pages/admin/PickHistoryPage'
 
 export default function App() {
   return (
@@ -10,8 +14,25 @@ export default function App() {
         <Navbar />
         <main className="pt-16">
           <Routes>
-            <Route path="/" element={<SchedulePage />} />
+            <Route path="/"       element={<SchedulePage />} />
             <Route path="/rankings" element={<RankingsPage />} />
+            <Route path="/login"  element={<LoginPage />} />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <PendingPicksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/history"
+              element={
+                <ProtectedRoute>
+                  <PickHistoryPage />
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </main>
       </div>

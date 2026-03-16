@@ -1,5 +1,11 @@
 /** API client for CFB Agent backend. */
-const BASE = import.meta.env.VITE_API_URL;
+const BASE       = import.meta.env.VITE_API_URL
+const ADMIN_KEY  = import.meta.env.VITE_ADMIN_API_KEY ?? ''
+
+const authHeaders = () => ({
+  'Content-Type':  'application/json',
+  'Authorization': `Bearer ${ADMIN_KEY}`,
+})
 
 /**
  * Fetch games for a given week.
@@ -7,8 +13,8 @@ const BASE = import.meta.env.VITE_API_URL;
  * @returns {Promise<Object[]>} Array of game objects.
  */
 export async function getGames(week) {
-  const res = await fetch(`${BASE}/games?week=${week}`);
-  return res.json();
+  const res = await fetch(`${BASE}/games?week=${week}`)
+  return res.json()
 }
 
 /**
@@ -19,9 +25,11 @@ export async function getGames(week) {
  * @returns {Promise<Object>} Matchup prediction object.
  */
 export async function getMatchup(home, away, season = 2025) {
-  const res = await fetch(`${BASE}/matchup?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&season=${season}`);
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json();
+  const res = await fetch(
+    `${BASE}/matchup?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&season=${season}`
+  )
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
 }
 
 /**
@@ -29,6 +37,58 @@ export async function getMatchup(home, away, season = 2025) {
  * @returns {Promise<Object[]>} Array of team ranking objects.
  */
 export async function getRankings() {
-  const res = await fetch(`${BASE}/rankings`);
-  return res.json();
+  const res = await fetch(`${BASE}/rankings`)
+  return res.json()
+}
+
+// ---------------------------------------------------------------------------
+// Picks — admin endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch picks that are not yet approved or rejected.
+ * @returns {Promise<Object[]>}
+ */
+export async function getPendingPicks() {
+  const res = await fetch(`${BASE}/picks/pending`)
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+/**
+ * Approve a pick by UUID.
+ * @param {string} pickId
+ * @returns {Promise<Object>}
+ */
+export async function approvePick(pickId) {
+  const res = await fetch(`${BASE}/picks/${pickId}/approve`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+/**
+ * Reject a pick by UUID.
+ * @param {string} pickId
+ * @returns {Promise<Object>}
+ */
+export async function rejectPick(pickId) {
+  const res = await fetch(`${BASE}/picks/${pickId}/reject`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+/**
+ * Fetch all approved picks.
+ * @returns {Promise<Object[]>}
+ */
+export async function getApprovedPicks() {
+  const res = await fetch(`${BASE}/picks/approved`)
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
 }
