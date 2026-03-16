@@ -6,3 +6,5 @@ python-dotenv
 pandas
 scikit-learn
 joblib
+sqlalchemy
+psycopg2-binary
