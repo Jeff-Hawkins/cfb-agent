@@ -326,6 +326,7 @@ def get_public_picks(
         WHERE p.season = {season}
           AND p.week = {week}
           AND p.approved = true
+          AND ABS(p.spread) <= 17
         ORDER BY ABS(p.model_spread_diff) DESC
     """)
     df = df.fillna("")
