@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import text
 from db.database import engine, query_db
+from constants import MAX_ABS_SPREAD, MIN_SPREAD_DIFF, MIN_WIN_PROB_FLAG, MODEL_IMPLIED_SCALE
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def compute_model_spread_diff(win_prob: float, consensus_spread: float) -> float
     Returns:
         Absolute point difference between model and market.
     """
-    model_implied = (win_prob - 0.5) * 28
+    model_implied = (win_prob - 0.5) * MODEL_IMPLIED_SCALE
     return abs(model_implied - consensus_spread)
 
 
@@ -117,9 +118,9 @@ def _directed_spread_diff(
         Signed spread difference (actual minus model-implied).
     """
     if pick_team == home_team:
-        model_implied = -1.0 * (pick_win_prob - 0.5) * 28
+        model_implied = -1.0 * (pick_win_prob - 0.5) * MODEL_IMPLIED_SCALE
     else:
-        model_implied = (pick_win_prob - 0.5) * 28
+        model_implied = (pick_win_prob - 0.5) * MODEL_IMPLIED_SCALE
     return actual_spread - model_implied
 
 
@@ -196,11 +197,11 @@ def flag_picks(
             logger.warning("No prediction for %s vs %s: %s", home, away, home_win_prob)
             continue
 
-        # Determine pick team — whichever side clears the 65% threshold
-        if home_win_prob >= 0.65:
+        # Determine pick team — whichever side clears the MIN_WIN_PROB_FLAG threshold
+        if home_win_prob >= MIN_WIN_PROB_FLAG:
             pick_team = home
             pick_win_prob = float(home_win_prob)
-        elif (1.0 - home_win_prob) >= 0.65:
+        elif (1.0 - home_win_prob) >= MIN_WIN_PROB_FLAG:
             pick_team = away
             pick_win_prob = round(1.0 - float(home_win_prob), 4)
         else:
@@ -214,12 +215,12 @@ def flag_picks(
         spread_val = float(consensus_spread)
 
         # Blowout filter — skip games with large spreads
-        if abs(spread_val) > 17:
+        if abs(spread_val) > MAX_ABS_SPREAD:
             continue
 
         # Corrected directional spread_diff
         spread_diff = _directed_spread_diff(pick_win_prob, pick_team, home, spread_val)
-        if abs(spread_diff) < 5.0:
+        if abs(spread_diff) < MIN_SPREAD_DIFF:
             continue
 
         label = confidence_label(pick_win_prob)

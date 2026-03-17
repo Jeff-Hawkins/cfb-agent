@@ -164,5 +164,71 @@ class TestGetWeeklyGames(unittest.TestCase):
         self.assertTrue(required.issubset(set(game.keys())))
 
 
+class TestBlowoutFilter(unittest.TestCase):
+    @patch("routers.games.query_db")
+    @patch("models.win_probability.predict_win_probability_batch",
+           side_effect=_mock_batch(0.72))
+    def test_blowout_game_excluded_by_consensus_spread(self, mock_batch, mock_qdb):
+        """Game with abs(consensus_spread) > 17 should be excluded from results."""
+        lines = pd.DataFrame([("1001", -21.0)], columns=["game_id", "spread"])
+        mock_qdb.side_effect = [_games_df(), lines, _picks_df()]
+        response = client.get("/games/weekly?season=2025&week=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    @patch("routers.games.query_db")
+    @patch("models.win_probability.predict_win_probability_batch",
+           side_effect=_mock_batch(0.72))
+    def test_spread_exactly_17_not_filtered(self, mock_batch, mock_qdb):
+        """Game with abs(consensus_spread) == 17 should NOT be filtered out."""
+        lines = pd.DataFrame([("1001", -17.0)], columns=["game_id", "spread"])
+        mock_qdb.side_effect = [_games_df(), lines, _picks_df()]
+        response = client.get("/games/weekly?season=2025&week=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+
+    @patch("routers.games.query_db")
+    @patch("models.win_probability.predict_win_probability_batch",
+           side_effect=_mock_batch(0.72))
+    def test_no_line_game_not_filtered(self, mock_batch, mock_qdb):
+        """Game with no betting line should not be excluded by the blowout filter."""
+        mock_qdb.side_effect = [_games_df(), _lines_df([]), _picks_df()]
+        response = client.get("/games/weekly?season=2025&week=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+
+
+class TestImpliedSpreadMirror(unittest.TestCase):
+    @patch("routers.games.query_db")
+    @patch("models.win_probability.predict_win_probability_batch",
+           side_effect=_mock_batch(0.72))
+    def test_away_implied_spread_mirrors_home(self, mock_batch, mock_qdb):
+        """home_implied_spread + away_implied_spread should equal 0."""
+        mock_qdb.side_effect = [_games_df(), _lines_df(), _picks_df()]
+        response = client.get("/games/weekly?season=2025&week=1")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        total = data[0]["home_implied_spread"] + data[0]["away_implied_spread"]
+        self.assertAlmostEqual(total, 0.0, places=1)
+
+
+class TestConstantsImportable(unittest.TestCase):
+    def test_constants_importable_from_backend(self):
+        """All shared constants should be importable from backend/constants.py."""
+        from constants import (
+            MAX_ABS_SPREAD,
+            MIN_SPREAD_DIFF,
+            MIN_WIN_PROB_FLAG,
+            MIN_WIN_PROB_GAMES,
+            MODEL_IMPLIED_SCALE,
+        )
+        self.assertEqual(MAX_ABS_SPREAD, 17)
+        self.assertEqual(MIN_SPREAD_DIFF, 5.0)
+        self.assertEqual(MIN_WIN_PROB_FLAG, 0.65)
+        self.assertEqual(MIN_WIN_PROB_GAMES, 0.55)
+        self.assertEqual(MODEL_IMPLIED_SCALE, 28)
+
+
 if __name__ == "__main__":
     unittest.main()

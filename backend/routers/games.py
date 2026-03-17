@@ -7,6 +7,7 @@ GET /games/weekly   — FBS game predictions with model vs Vegas comparison.
 import logging
 from fastapi import APIRouter, Query
 from db.database import query_db
+from constants import MAX_ABS_SPREAD, MIN_WIN_PROB_GAMES, MODEL_IMPLIED_SCALE
 
 logger = logging.getLogger(__name__)
 
@@ -134,17 +135,22 @@ def get_weekly_games(
         home_win_prob = pred["home_win_prob"]
         away_win_prob = pred["away_win_prob"]
 
-        # Filter: skip near-coin-flip games (neither team >= 55%)
-        if max(home_win_prob, away_win_prob) < 0.55:
+        # Filter: skip near-coin-flip games (neither team >= MIN_WIN_PROB_GAMES)
+        if max(home_win_prob, away_win_prob) < MIN_WIN_PROB_GAMES:
             continue
 
-        # Model-implied spreads
-        home_implied_spread = round(-1.0 * (home_win_prob - 0.5) * 28, 1)
-        away_implied_spread = round((away_win_prob - 0.5) * 28, 1)
+        # Model-implied spreads (mirrors: home + away = 0)
+        home_implied_spread = round(-1.0 * (home_win_prob - 0.5) * MODEL_IMPLIED_SCALE, 1)
+        away_implied_spread = round(-1.0 * (away_win_prob - 0.5) * MODEL_IMPLIED_SCALE, 1)
 
         # Consensus spread and model edge
         consensus_raw    = lines_map.get(game_id)
         consensus_spread = float(consensus_raw) if consensus_raw is not None else None
+
+        # Blowout filter — exclude games where the line is extreme
+        if consensus_spread is not None and abs(consensus_spread) > MAX_ABS_SPREAD:
+            continue
+
         model_edge = (
             round(abs(consensus_spread - home_implied_spread), 1)
             if consensus_spread is not None else None
