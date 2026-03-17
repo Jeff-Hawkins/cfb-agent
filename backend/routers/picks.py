@@ -257,7 +257,7 @@ def recalculate_spreads(
     picks_df = query_db("""
         SELECT id, pick_team, home_team, win_probability, spread
         FROM picks
-        WHERE spread IS NOT NULL AND spread != ''
+        WHERE spread IS NOT NULL
     """)
 
     if picks_df.empty:
