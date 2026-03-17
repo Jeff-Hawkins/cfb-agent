@@ -92,3 +92,18 @@ export async function getApprovedPicks() {
   if (!res.ok) throw new Error(`${res.status}`)
   return res.json()
 }
+
+/**
+ * Fetch public approved picks for a season/week (no auth required).
+ * @param {number} season - Season year.
+ * @param {number|null} [week] - Week number. Omit to get most recent week with picks.
+ * @returns {Promise<Object[]>}
+ */
+export async function getPublicPicks(season, week = null) {
+  const url = week != null
+    ? `${BASE}/picks/public?season=${season}&week=${week}`
+    : `${BASE}/picks/public?season=${season}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}

@@ -2,6 +2,8 @@
 
 Handles pick flagging, approval/rejection, outcome tracking, and history.
 All POST endpoints require a Bearer token matching the ADMIN_API_KEY env var.
+Public endpoints (GET /picks/public, GET /picks/pending, GET /picks/approved)
+require no authentication.
 """
 
 import os
@@ -52,6 +54,9 @@ def confidence_label(win_prob: float) -> str:
 def compute_model_spread_diff(win_prob: float, consensus_spread: float) -> float:
     """Return absolute difference between model-implied spread and consensus.
 
+    Legacy helper kept for backward compatibility with existing tests.
+    The flag endpoint now uses _directed_spread_diff() for correct sign handling.
+
     model_implied_spread is computed from the home team's win probability:
         model_implied = (home_win_prob - 0.5) * 28
 
@@ -64,6 +69,37 @@ def compute_model_spread_diff(win_prob: float, consensus_spread: float) -> float
     """
     model_implied = (win_prob - 0.5) * 28
     return abs(model_implied - consensus_spread)
+
+
+def _directed_spread_diff(
+    pick_win_prob: float,
+    pick_team: str,
+    home_team: str,
+    actual_spread: float,
+) -> float:
+    """Compute signed spread_diff using the corrected directional formula.
+
+    The model-implied spread is sign-adjusted based on which side was picked:
+      - Home pick: model_implied = -1 * (win_prob - 0.5) * 28
+      - Away pick: model_implied =  1 * (win_prob - 0.5) * 28
+
+    spread_diff = actual_spread - model_implied
+
+    Args:
+        pick_win_prob: Win probability of the pick team (0–1).
+        pick_team: Name of the team picked.
+        home_team: Name of the home team.
+        actual_spread: Consensus spread from betting_lines (home perspective,
+            negative = home favored).
+
+    Returns:
+        Signed spread difference (actual minus model-implied).
+    """
+    if pick_team == home_team:
+        model_implied = -1.0 * (pick_win_prob - 0.5) * 28
+    else:
+        model_implied = (pick_win_prob - 0.5) * 28
+    return actual_spread - model_implied
 
 
 # ---------------------------------------------------------------------------
@@ -79,10 +115,20 @@ def flag_picks(
     """Flag picks for a given season and week.
 
     For each FBS game in the week, runs the LightGBM model (with Platt
-    calibration) and compares to consensus betting lines. Flags picks where
-    win_probability >= 0.65 AND model_spread_diff >= 3.0. Inserts into the
-    picks table (skips duplicates). Sends email notification when at least one
-    pick is flagged.
+    calibration) and compares to consensus betting lines.
+
+    Flag thresholds (Phase 6):
+      - abs(spread) <= 17 — removes blowouts
+      - win_prob >= 0.65  — model confidence floor
+      - abs(spread_diff) >= 5.0 — corrected model vs market disagreement
+
+    spread_diff uses the directional formula:
+      home pick: model_implied = -1 * (win_prob - 0.5) * 28
+      away pick: model_implied =  1 * (win_prob - 0.5) * 28
+      spread_diff = actual_spread - model_implied
+
+    Inserts into the picks table (skips duplicates). Sends email notification
+    when at least one pick is flagged.
     """
     from models.win_probability import predict_win_probability
     from services.notifications import send_picks_ready_email
@@ -119,8 +165,6 @@ def flag_picks(
             logger.warning("No prediction for %s vs %s: %s", home, away, result)
             continue
 
-        # result is either a dict {"win_prob": ..., "raw_win_prob": ...} or a float
-        # (preseason composite path returns a plain float)
         if isinstance(result, dict):
             home_win_prob = result["win_prob"]
         else:
@@ -138,15 +182,22 @@ def flag_picks(
             pick_team = away
             pick_win_prob = round(1.0 - float(home_win_prob), 4)
         else:
-            continue  # Neither side meets threshold
+            continue  # Neither side meets win-prob threshold
 
         consensus_spread = lines_map.get(game_id)
         if consensus_spread is None:
             logger.warning("No betting line for game_id %s (%s vs %s)", game_id, home, away)
             continue
 
-        diff = compute_model_spread_diff(float(home_win_prob), float(consensus_spread))
-        if diff < 3.0:
+        spread_val = float(consensus_spread)
+
+        # Blowout filter — skip games with large spreads
+        if abs(spread_val) > 17:
+            continue
+
+        # Corrected directional spread_diff
+        spread_diff = _directed_spread_diff(pick_win_prob, pick_team, home, spread_val)
+        if abs(spread_diff) < 5.0:
             continue
 
         label = confidence_label(pick_win_prob)
@@ -159,8 +210,8 @@ def flag_picks(
             "away_team": away,
             "pick_team": pick_team,
             "win_probability": round(pick_win_prob, 4),
-            "spread": float(consensus_spread),
-            "model_spread_diff": round(diff, 2),
+            "spread": spread_val,
+            "model_spread_diff": round(abs(spread_diff), 2),
             "confidence_label": label,
         }
 
@@ -188,6 +239,97 @@ def flag_picks(
             logger.error("Email notification failed: %s", exc)
 
     return {"flagged": len(flagged)}
+
+
+@router.post("/recalculate-spreads")
+def recalculate_spreads(
+    _: None = Depends(_require_admin),
+):
+    """Recalculate model_spread_diff for all existing picks using the corrected formula.
+
+    Uses the spread already stored on each pick row (originally sourced from
+    betting_lines at flag time). Applies _directed_spread_diff() to get a
+    corrected abs(spread_diff) and updates model_spread_diff on each row.
+
+    Returns:
+        Dict with count of picks updated.
+    """
+    picks_df = query_db("""
+        SELECT id, pick_team, home_team, win_probability, spread
+        FROM picks
+        WHERE spread IS NOT NULL AND spread != ''
+    """)
+
+    if picks_df.empty:
+        return {"updated": 0}
+
+    updated = 0
+    for _, pick in picks_df.iterrows():
+        try:
+            spread_val = float(pick["spread"])
+            win_prob   = float(pick["win_probability"])
+            diff = _directed_spread_diff(win_prob, pick["pick_team"], pick["home_team"], spread_val)
+            new_msd = round(abs(diff), 2)
+
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE picks SET model_spread_diff = :msd WHERE id = :id"),
+                    {"msd": new_msd, "id": str(pick["id"])},
+                )
+            updated += 1
+        except Exception as exc:
+            logger.warning("Could not recalculate spread diff for pick %s: %s", pick["id"], exc)
+
+    return {"updated": updated}
+
+
+@router.get("/public")
+def get_public_picks(
+    season: int = Query(..., description="Season year"),
+    week: int = Query(None, description="Week number — omit for most recent week with picks"),
+):
+    """Return all approved picks for a season/week with AI explanation shorts.
+
+    No authentication required — fully public endpoint.
+
+    If week is omitted, returns the most recent week that has approved picks.
+    Results are sorted by abs(model_spread_diff) descending.
+
+    Args:
+        season: Season year.
+        week: CFB week number. Optional.
+
+    Returns:
+        List of pick dicts including explanation_short from pick_explanations
+        (null if not yet generated).
+    """
+    if week is None:
+        week_df = query_db(f"""
+            SELECT week FROM picks
+            WHERE season = {season} AND approved = true
+            ORDER BY week DESC
+            LIMIT 1
+        """)
+        if week_df.empty:
+            return []
+        week = int(week_df.iloc[0]["week"])
+
+    df = query_db(f"""
+        SELECT
+            p.id, p.game_id, p.season, p.week,
+            p.home_team, p.away_team, p.pick_team,
+            p.win_probability, p.spread, p.model_spread_diff, p.confidence_label,
+            p.outcome, p.ats_result, p.clv,
+            pe.explanation_short
+        FROM picks p
+        LEFT JOIN pick_explanations pe ON pe.pick_id::text = p.id::text
+        WHERE p.season = {season}
+          AND p.week = {week}
+          AND p.approved = true
+        ORDER BY ABS(p.model_spread_diff) DESC
+    """)
+    df = df.fillna("")
+    return df.to_dict(orient="records")
 
 
 @router.get("/pending")

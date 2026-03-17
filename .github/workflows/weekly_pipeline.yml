@@ -112,3 +112,26 @@ jobs:
           if d.get('retry'):
               print('WARNING: Some outcomes still pending — scores not yet available. Re-run later.')
           "
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 4: bayesian-update — runs Sunday 11 AM ET (cron "0 15 * * 0")
+  #         Runs after update-outcomes has completed successfully.
+  # ─────────────────────────────────────────────────────────────────────────────
+  bayesian-update:
+    runs-on: ubuntu-latest
+    needs: [compute-week, update-outcomes]
+    if: (github.event.schedule == '0 14 * * 0' || github.event_name == 'workflow_dispatch') && needs.update-outcomes.result == 'success'
+    steps:
+      - name: Trigger Bayesian model update for last week
+        run: |
+          LAST_WEEK=${{ needs.compute-week.outputs.last_week }}
+          echo "Triggering Bayesian update for 2025 week $LAST_WEEK..."
+          RESPONSE=$(curl -s -X POST \
+            "$RAILWAY_BACKEND_URL/bayesian/update?season=2025&week=$LAST_WEEK" \
+            -H "Authorization: Bearer $ADMIN_API_KEY")
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print(f\"Status: {d.get('status','?')}  Season: {d.get('season','?')}  Week: {d.get('week','?')}\")
+          "

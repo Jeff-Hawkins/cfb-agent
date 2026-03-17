@@ -37,6 +37,7 @@ export default function Navbar() {
         <div className="flex items-center gap-6">
           <NavLink to="/" end className={navLink}>Schedule</NavLink>
           <NavLink to="/rankings" className={navLink}>Power Rankings</NavLink>
+          <NavLink to="/picks" className={navLink}>Picks</NavLink>
 
           {session ? (
             <>

@@ -76,7 +76,11 @@ def _make_games_df(home="Alabama", away="Auburn", game_id="1001"):
     }])
 
 
-def _make_lines_df(game_id="1001", spread=-7.0):
+def _make_lines_df(game_id="1001", spread=-14.0):
+    # Default spread triggers Phase 6 flag thresholds:
+    #   home pick, win_prob=0.72, model_implied=-6.16
+    #   spread_diff = -14.0 - (-6.16) = -7.84 → abs=7.84 >= 5.0 ✓
+    #   abs(-14) = 14 <= 17 (not a blowout) ✓
     return pd.DataFrame([{"game_id": game_id, "spread": spread}])
 
 
@@ -136,11 +140,12 @@ class TestFlagPicks(unittest.TestCase):
     @patch("models.win_probability.predict_win_probability", return_value=0.72)
     @patch("services.notifications.send_picks_ready_email")
     def test_flag_small_edge_not_inserted(self, mock_email, mock_predict, mock_qdb, mock_engine):
-        """model_spread_diff < 3.0 should skip the pick.
+        """abs(spread_diff) < 5.0 should skip the pick.
 
-        implied = (0.72-0.5)*28 = 6.16; set spread=4.16 → diff=abs(6.16-4.16)=2.0 < 3.0
+        Home pick, model_implied = -1*(0.72-0.5)*28 = -6.16
+        spread=-7.0 → spread_diff = -7.0 - (-6.16) = -0.84 → abs=0.84 < 5.0
         """
-        mock_qdb.side_effect = [_make_games_df(), _make_lines_df(spread=4.16)]
+        mock_qdb.side_effect = [_make_games_df(), _make_lines_df(spread=-7.0)]
 
         from routers.picks import flag_picks
         result = flag_picks(season=2025, week=1, _=None)

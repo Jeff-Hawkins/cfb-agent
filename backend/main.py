@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import matchup, rankings, games, picks, explanations
+from routers import matchup, rankings, games, picks, explanations, bayesian
 
 app = FastAPI(title="CFB Agent API", version="2.0")
 
@@ -27,6 +27,7 @@ app.include_router(rankings.router, prefix="/rankings", tags=["rankings"])
 app.include_router(games.router, prefix="/games", tags=["games"])
 app.include_router(picks.router, prefix="/picks", tags=["picks"])
 app.include_router(explanations.router, prefix="/explanations", tags=["explanations"])
+app.include_router(bayesian.router,    prefix="/bayesian",    tags=["bayesian"])
 
 
 @app.get("/health")

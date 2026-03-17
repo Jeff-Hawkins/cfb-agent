@@ -6,6 +6,7 @@ import RankingsPage from './pages/RankingsPage'
 import LoginPage from './pages/LoginPage'
 import PendingPicksPage from './pages/admin/PendingPicksPage'
 import PickHistoryPage from './pages/admin/PickHistoryPage'
+import PublicPicksPage from './pages/PublicPicksPage'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Routes>
             <Route path="/"       element={<SchedulePage />} />
             <Route path="/rankings" element={<RankingsPage />} />
+            <Route path="/picks"    element={<PublicPicksPage />} />
             <Route path="/login"  element={<LoginPage />} />
             <Route
               path="/admin"
