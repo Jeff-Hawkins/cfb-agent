@@ -9,3 +9,4 @@ joblib
 sqlalchemy
 psycopg2-binary
 sendgrid
+groq==1.1.0
