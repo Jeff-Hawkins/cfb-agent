@@ -75,11 +75,12 @@ def get_weekly_games(
     Sorted by model_edge descending — highest disagreement first.
     No authentication required.
     """
-    from models.win_probability import predict_win_probability
+    from models.win_probability import predict_win_probability_batch
 
     # 1. Fetch FBS-only games (both home and away must be FBS)
     games_df = query_db(f"""
-        SELECT id, "homeTeam", "awayTeam", "homePoints", "awayPoints", "completed"
+        SELECT id, "homeTeam", "awayTeam", "homePoints", "awayPoints",
+               "neutralSite", "completed"
         FROM games
         WHERE season = {season} AND week = {week}
           AND "seasonType" = 'regular'
@@ -110,41 +111,39 @@ def get_weekly_games(
     """)
     picks_map = dict(zip(picks_df["game_id"].astype(str), picks_df["pick_team"]))
 
+    # 4. Build game list for batch prediction
+    game_list = [
+        {
+            "game_id":      str(row["id"]),
+            "home_team":    row["homeTeam"],
+            "away_team":    row["awayTeam"],
+            "home_points":  row["homePoints"],
+            "away_points":  row["awayPoints"],
+            "neutral_site": bool(row["neutralSite"]) if row["neutralSite"] != "" else False,
+        }
+        for _, row in games_df.iterrows()
+    ]
+
+    # 5. Single batch prediction — loads model + all feature tables once
+    predictions = predict_win_probability_batch(game_list, season)
+
     results = []
 
-    for _, game in games_df.iterrows():
-        game_id = str(game["id"])
-        home    = game["homeTeam"]
-        away    = game["awayTeam"]
-
-        # Run win probability model
-        result = predict_win_probability(home, away, season)
-
-        if isinstance(result, str):
-            logger.warning("No prediction for %s vs %s: %s", home, away, result)
-            continue
-
-        if isinstance(result, dict):
-            home_win_prob = float(result["win_prob"])
-        else:
-            home_win_prob = float(result)
-
-        if isinstance(home_win_prob, str):
-            logger.warning("No prediction for %s vs %s: %s", home, away, home_win_prob)
-            continue
-
-        away_win_prob = round(1.0 - home_win_prob, 4)
+    for pred in predictions:
+        game_id       = pred["game_id"]
+        home_win_prob = pred["home_win_prob"]
+        away_win_prob = pred["away_win_prob"]
 
         # Filter: skip near-coin-flip games (neither team >= 55%)
         if max(home_win_prob, away_win_prob) < 0.55:
             continue
 
-        # Model-implied spreads (pick team's perspective)
+        # Model-implied spreads
         home_implied_spread = round(-1.0 * (home_win_prob - 0.5) * 28, 1)
         away_implied_spread = round((away_win_prob - 0.5) * 28, 1)
 
         # Consensus spread and model edge
-        consensus_raw = lines_map.get(game_id)
+        consensus_raw    = lines_map.get(game_id)
         consensus_spread = float(consensus_raw) if consensus_raw is not None else None
         model_edge = (
             round(abs(consensus_spread - home_implied_spread), 1)
@@ -152,18 +151,20 @@ def get_weekly_games(
         )
 
         # Scores and status
-        home_score = int(float(game["homePoints"])) if game["homePoints"] != "" else None
-        away_score = int(float(game["awayPoints"])) if game["awayPoints"] != "" else None
+        home_pts = pred["home_points"]
+        away_pts = pred["away_points"]
+        home_score = int(float(home_pts)) if home_pts != "" else None
+        away_score = int(float(away_pts)) if away_pts != "" else None
         status = "final" if (home_score is not None and away_score is not None) else "scheduled"
 
         results.append({
             "game_id":             game_id,
             "season":              season,
             "week":                week,
-            "home_team":           home,
-            "away_team":           away,
-            "home_win_prob":       round(home_win_prob, 4),
-            "away_win_prob":       round(away_win_prob, 4),
+            "home_team":           pred["home_team"],
+            "away_team":           pred["away_team"],
+            "home_win_prob":       home_win_prob,
+            "away_win_prob":       away_win_prob,
             "home_implied_spread": home_implied_spread,
             "away_implied_spread": away_implied_spread,
             "consensus_spread":    consensus_spread,

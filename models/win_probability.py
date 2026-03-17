@@ -374,5 +374,123 @@ def predict_win_probability(home_team: str, away_team: str, season: int = 2024):
     return {"win_prob": win_prob, "raw_win_prob": raw_win_prob}
 
 
+def predict_win_probability_batch(games: list, season: int) -> list:
+    """Run win probability prediction for multiple games in one vectorized call.
+
+    Loads the model and all feature tables once, builds the full feature matrix,
+    runs a single predict_proba call, and applies Platt calibration vectorized.
+    This is orders of magnitude faster than calling predict_win_probability()
+    in a loop (avoids N × 8 DB queries and N model loads).
+
+    Args:
+        games: List of dicts, each with keys:
+               - home_team (str)
+               - away_team (str)
+               - neutral_site (bool, optional — defaults to False)
+        season: Season year.
+
+    Returns:
+        List of input dicts enriched with:
+        - home_win_prob (float, calibrated)
+        - away_win_prob (float)
+        - raw_home_win_prob (float, uncalibrated)
+        Games for which no feature data exists are silently dropped.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not games:
+        return []
+
+    # 2026: use preseason composite ratings (vectorized)
+    if season == 2026:
+        comp_df = query_db("SELECT team, composite_100 FROM preseason_2026")
+        scores = dict(zip(comp_df["team"], comp_df["composite_100"]))
+        results = []
+        for game in games:
+            h = scores.get(game["home_team"])
+            a = scores.get(game["away_team"])
+            if h is None or a is None:
+                logger.warning(
+                    "No preseason composite for %s or %s",
+                    game["home_team"], game["away_team"],
+                )
+                continue
+            diff = (h + _COMPOSITE_HOME_FIELD) - a
+            prob = round(float(1.0 / (1.0 + np.exp(-_COMPOSITE_K * diff))), 4)
+            results.append({
+                **game,
+                "home_win_prob":     prob,
+                "away_win_prob":     round(1.0 - prob, 4),
+                "raw_home_win_prob": prob,
+            })
+        return results
+
+    # Load model artifacts once
+    _saved = os.path.join(os.path.dirname(__file__), "saved")
+    model        = joblib.load(os.path.join(_saved, "win_prob_model.pkl"))
+    feature_cols = joblib.load(os.path.join(_saved, "feature_cols.pkl"))
+
+    # Load all reference tables once
+    profiles = build_team_profiles()
+    key_stats = ["pointsPerGame", "passingYards", "rushingYards", "turnovers", "fumblesLost"]
+    available_stats = [s for s in key_stats if s in profiles.columns]
+    profiles = profiles[["team", "season"] + available_stats].fillna(0)
+
+    sp     = _load_sp()
+    rec    = _load_recruiting()
+    ret    = _load_returning()
+    coa    = _load_coaches()
+    elo    = _load_elo()
+    talent = _load_talent()
+
+    # Build feature rows for all games (reusing already-loaded tables)
+    feature_rows = []
+    valid_games  = []
+
+    for game in games:
+        features = _build_features(
+            game["home_team"], game["away_team"], season,
+            profiles, sp, rec, ret, coa, available_stats, elo, talent,
+            neutral_site=game.get("neutral_site", False),
+        )
+        if features is None:
+            logger.warning(
+                "No data for %s vs %s in %s — skipping",
+                game["home_team"], game["away_team"], season,
+            )
+            continue
+        feature_rows.append(features)
+        valid_games.append(game)
+
+    if not feature_rows:
+        return []
+
+    # Single batch inference
+    X = pd.DataFrame(feature_rows)[feature_cols]
+    raw_probs = model.predict_proba(X)[:, 1]
+
+    # Vectorized Platt calibration — load scaler once
+    scaler_path = os.path.join(_saved, "platt_scaler.joblib")
+    if os.path.exists(scaler_path):
+        calibrated = joblib.load(scaler_path)
+        calibrator = calibrated.calibrated_classifiers_[0].calibrators[0]
+        cal_probs = calibrator.predict(raw_probs)
+    else:
+        cal_probs = raw_probs  # fallback if scaler not yet trained
+
+    results = []
+    for game, raw_prob, cal_prob in zip(valid_games, raw_probs, cal_probs):
+        home_win_prob = round(float(cal_prob), 4)
+        results.append({
+            **game,
+            "home_win_prob":     home_win_prob,
+            "away_win_prob":     round(1.0 - home_win_prob, 4),
+            "raw_home_win_prob": round(float(raw_prob), 4),
+        })
+
+    return results
+
+
 if __name__ == "__main__":
     train_model()
