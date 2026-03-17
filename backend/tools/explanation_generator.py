@@ -193,7 +193,7 @@ def build_feature_snapshot(
         if row.empty:
             return 0.0, 0.0
         r = row.iloc[0]
-        return float(r["ret_totalPPA"] or 0), float(r["ret_percentPPA"] or 0)
+        return float(r["ret_totalppa"] or 0), float(r["ret_percentppa"] or 0)
 
     h_ret_ppa, h_ret_pct = _ret(home_team)
     a_ret_ppa, a_ret_pct = _ret(away_team)
@@ -481,7 +481,7 @@ def generate_and_store_explanation(pick_id: str) -> dict:
                      feature_snapshot, model_version, generated_at)
                 VALUES
                     (:pick_id, :explanation_short, :explanation_full,
-                     :feature_snapshot::jsonb, :model_version, NOW())
+                     CAST(:feature_snapshot AS jsonb), :model_version, NOW())
                 ON CONFLICT (pick_id) DO UPDATE SET
                     explanation_short = EXCLUDED.explanation_short,
                     explanation_full  = EXCLUDED.explanation_full,
