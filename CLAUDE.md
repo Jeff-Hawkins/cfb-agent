@@ -167,6 +167,8 @@ cfb-agent/
 - **Frontend updates** — PendingPicksPage shows AI Analysis section + raw win prob; `featureDescriptions.js` shared map
 - **45 tests passing** — `test_platt.py`, `test_explanation_generator.py`, `test_explanations_api.py`
 - Key fix: `backend/tools/` is resolved via `sys.path` — always apply fixes to both root and backend copies
+- Post-phase fix: `ret_totalppa` / `ret_percentppa` must be accessed as lowercase — `query_db` lowercases all unquoted AS aliases
+- Post-phase fix: `groq==1.1.0` added to `backend/requirements.txt` — was missing, caused ModuleNotFoundError on Railway
 
 ### Phase 4.5 (commits `abc05a3`, `1ca521b`, `6f5925f`) ✅
 - **picks table** — `db/migrations/002_picks_table.sql` — run against Supabase ✅
@@ -209,6 +211,32 @@ cfb-agent/
    - Env vars: `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ADMIN_API_KEY`
 3. Railway secrets: `SENDGRID_API_KEY`, `NOTIFY_EMAIL` (ADMIN_API_KEY already set)
 4. GitHub Actions secrets: `RAILWAY_BACKEND_URL`, `ADMIN_API_KEY`
+
+---
+
+## Phase 6 Scope
+
+### Flag Logic Corrections (pulling forward from Phase 7)
+- **Corrected spread_diff formula** — uses actual `betting_lines.spread` (not approximation)
+  - If pick_team = home_team: `model_implied_spread = -1 * (win_prob - 0.5) * 28`
+  - If pick_team = away_team: `model_implied_spread = (win_prob - 0.5) * 28`
+  - `spread_diff = actual_spread - model_implied_spread`
+- **Updated flag thresholds:**
+  - `abs(spread) <= 17` — removes blowouts
+  - `win_prob >= 0.65` — model confidence floor (unchanged)
+  - `abs(spread_diff) >= 5.0` — real model vs market disagreement
+- **Sign convention confirmed:** negative spread = home team favored
+
+### Public Picks Page (`/picks`)
+- No auth required — fully open Season 1
+- Shows all approved picks for current season/week
+- Each pick displays: matchup, pick team, win prob, confidence badge, spread (toFixed(1)), AI Analysis (`explanation_short`)
+- Header: overall ATS record + ROI
+- Week filter
+- No CLV data yet (Phase 9)
+
+### Bayesian Updating
+- In-season model recalibration as 2025 results come in
 
 ---
 
@@ -259,8 +287,8 @@ cfb-agent/
 | `spread_diff` as live feature (reintroduce using actual opening/closing lines from DB) | 7 |
 | Weather integration | 7 |
 | Power ratings pipeline (SP+ via CFBD, Sagarin + Massey scrapers → `power_ratings_comparison`) | 7 |
-| Blowout filter (`abs(spread) <= 20`) | 7 |
-| Tighter `model_spread_diff` threshold (`>= 5.0`) | 7 |
+| Blowout filter and spread_diff threshold | ✅ Pulled into Phase 6 |
+| Spread display bug fix (too many decimals) | ✅ Fixed in Phase 5 post-patch |
 | Delete/undo on history page | 7 |
 | Groq → Claude Sonnet swap + Prompt Eval Agent | 8 |
 | CLV dashboard | 9 |
@@ -323,4 +351,4 @@ VITE_ADMIN_API_KEY=
 
 ---
 
-*Last updated: Phase 5 + frontend bug fixes complete. AI Analysis now shows on PickHistoryPage. Spread decimals fixed across admin UI. Next: Phase 6 — Bayesian updating.*
+*Last updated: Phase 5 complete and production-verified. Post-phase fixes: ret_totalppa lowercase alias, groq==1.1.0 added to backend requirements, spread display fixed, History page AI Analysis live. Phase 6 scope finalized: corrected spread_diff formula + blowout filter pulled forward, public /picks page added. Next: Phase 6 execution.*
