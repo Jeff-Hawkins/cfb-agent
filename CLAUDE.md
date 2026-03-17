@@ -183,6 +183,10 @@ cfb-agent/
 - **19 tests passing** — `tests/test_picks.py`
 - **Tested live**: `/picks/flag?season=2025&week=1` → `{"flagged": 38}` ✅
 
+### Frontend Bug Fixes (commit `003d636`) ✅
+- **AI Analysis on PickHistoryPage** — fetches `GET /explanations/{pick_id}` in parallel after picks load (non-blocking); renders `explanation_short` as a second table row below each pick under an "AI Analysis" label in muted xs text; 404 and network errors fail silently
+- **Spread decimal display** — `PendingPicksPage` and `PickHistoryPage` now wrap all `spread` and `model_spread_diff` values with `toFixed(1)` — `-21.8` instead of `-21.8333...`
+
 ### Railway Deploy ✅
 - Live URL: `https://cfb-agent-production.up.railway.app`
 - Dockerfile used (nixpacks could not resolve libgomp)
@@ -255,7 +259,6 @@ cfb-agent/
 | `spread_diff` as live feature (reintroduce using actual opening/closing lines from DB) | 7 |
 | Weather integration | 7 |
 | Power ratings pipeline (SP+ via CFBD, Sagarin + Massey scrapers → `power_ratings_comparison`) | 7 |
-| Spread display bug fix (too many decimals) | 7 |
 | Blowout filter (`abs(spread) <= 20`) | 7 |
 | Tighter `model_spread_diff` threshold (`>= 5.0`) | 7 |
 | Delete/undo on history page | 7 |
@@ -320,4 +323,4 @@ VITE_ADMIN_API_KEY=
 
 ---
 
-*Last updated: Phase 5 complete. Platt scaling live, AI explanations wired to pick approval, 45 tests passing. pick_explanations migration run in Supabase. Next: Phase 6 — Bayesian updating.*
+*Last updated: Phase 5 + frontend bug fixes complete. AI Analysis now shows on PickHistoryPage. Spread decimals fixed across admin UI. Next: Phase 6 — Bayesian updating.*
