@@ -60,7 +60,16 @@ function SummaryBar({ picks }) {
 }
 
 function PickCard({ pick }) {
-  const isHome    = pick.pick_team === pick.home_team
+  const isHome       = pick.pick_team === pick.home_team
+  const pickSpread   = isHome ? pick.spread : -1 * pick.spread
+  const modelImplied = isHome
+    ? -1 * (pick.win_probability - 0.5) * 28
+    : (pick.win_probability - 0.5) * 28
+  const edge         = Math.abs(pick.spread - modelImplied).toFixed(1)
+  const formatSpread = (val) => {
+    const rounded = Number(val).toFixed(1)
+    return val > 0 ? `+${rounded}` : `${rounded}`
+  }
   const aiText    = pick.explanation_short && pick.explanation_short !== '' ? pick.explanation_short : null
   const atsColor  = OUTCOME_COLOR[pick.ats_result] ?? 'text-gray-500'
   const outColor  = OUTCOME_COLOR[pick.outcome]    ?? 'text-gray-500'
@@ -97,15 +106,21 @@ function PickCard({ pick }) {
           </span>
         </span>
         <span>
-          Spread:{' '}
+          Pick Spread:{' '}
           <span className="text-white font-medium">
-            {pick.spread !== '' ? (pick.spread > 0 ? '+' : '') + Number(pick.spread).toFixed(1) : '—'}
+            {pick.spread !== '' ? formatSpread(pickSpread) : '—'}
           </span>
         </span>
         <span>
-          Model Edge:{' '}
+          Model Line:{' '}
           <span className="text-white font-medium">
-            +{Number(pick.model_spread_diff).toFixed(1)} pts
+            {pick.spread !== '' ? formatSpread(modelImplied) : '—'}
+          </span>
+        </span>
+        <span>
+          Edge:{' '}
+          <span className="text-white font-medium">
+            {pick.spread !== '' ? `+${edge} pts` : '—'}
           </span>
         </span>
       </div>

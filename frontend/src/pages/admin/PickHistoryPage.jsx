@@ -108,7 +108,8 @@ export default function PickHistoryPage() {
                   <th className="text-left py-2 pr-4">Pick</th>
                   <th className="text-left py-2 pr-4">Win Prob</th>
                   <th className="text-left py-2 pr-4">Confidence</th>
-                  <th className="text-left py-2 pr-4">Spread</th>
+                  <th className="text-left py-2 pr-4">Pick Spread</th>
+                  <th className="text-left py-2 pr-4">Model Line</th>
                   <th className="text-left py-2 pr-4">Outcome</th>
                   <th className="text-left py-2 pr-4">ATS</th>
                   <th className="text-left py-2">CLV</th>
@@ -116,8 +117,17 @@ export default function PickHistoryPage() {
               </thead>
               <tbody>
                 {picks.map(pick => {
-                  const atsColor = ATS_COLOR[pick.ats_result] ?? 'text-gray-500'
-                  const aiText   = explanations[pick.id] ?? null
+                  const atsColor     = ATS_COLOR[pick.ats_result] ?? 'text-gray-500'
+                  const aiText       = explanations[pick.id] ?? null
+                  const isHome       = pick.pick_team === pick.home_team
+                  const pickSpread   = isHome ? pick.spread : -1 * pick.spread
+                  const modelImplied = isHome
+                    ? -1 * (pick.win_probability - 0.5) * 28
+                    : (pick.win_probability - 0.5) * 28
+                  const formatSpread = (val) => {
+                    const rounded = Number(val).toFixed(1)
+                    return val > 0 ? `+${rounded}` : `${rounded}`
+                  }
                   return (
                     <>
                       <tr key={pick.id} className="border-b border-[#1a1a1a] hover:bg-[#111111] transition-colors">
@@ -135,7 +145,10 @@ export default function PickHistoryPage() {
                           <span className="text-xs text-gray-300">{pick.confidence_label || '—'}</span>
                         </td>
                         <td className="py-3 pr-4 text-gray-300">
-                          {pick.spread !== '' ? Number(pick.spread).toFixed(1) : '—'}
+                          {pick.spread !== '' ? formatSpread(pickSpread) : '—'}
+                        </td>
+                        <td className="py-3 pr-4 text-gray-300">
+                          {pick.spread !== '' ? formatSpread(modelImplied) : '—'}
                         </td>
                         <td className="py-3 pr-4">
                           <span className={pick.outcome === 'WIN' ? 'text-green-400' : pick.outcome === 'LOSS' ? 'text-red-400' : 'text-gray-500'}>
@@ -151,7 +164,7 @@ export default function PickHistoryPage() {
                       </tr>
                       {aiText && (
                         <tr key={`${pick.id}-ai`} className="border-b border-[#1a1a1a]">
-                          <td colSpan={9} className="pb-3 pt-0 px-0">
+                          <td colSpan={10} className="pb-3 pt-0 px-0">
                             <p className="text-xs text-gray-500 mb-0.5">AI Analysis</p>
                             <p className="text-xs text-gray-400 leading-relaxed">{aiText}</p>
                           </td>
