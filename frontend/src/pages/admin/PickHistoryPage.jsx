@@ -5,6 +5,8 @@
 import { useEffect, useState } from 'react'
 import { getApprovedPicks } from '../../api/client'
 
+const API_URL = import.meta.env.VITE_API_URL ?? ''
+
 const ATS_COLOR = {
   WIN:  'text-green-400',
   LOSS: 'text-red-400',
@@ -52,12 +54,29 @@ function SummaryBar({ picks }) {
 }
 
 export default function PickHistoryPage() {
-  const [picks,   setPicks]   = useState([])
-  const [loading, setLoading] = useState(true)
+  const [picks,        setPicks]        = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [explanations, setExplanations] = useState({})   // pick_id → explanation_short
 
   useEffect(() => {
     getApprovedPicks()
-      .then(setPicks)
+      .then(data => {
+        setPicks(data)
+        // Fetch explanations in parallel after picks load — fail silently
+        data.forEach(pick => {
+          fetch(`${API_URL}/explanations/${pick.id}`)
+            .then(res => {
+              if (!res.ok) return
+              return res.json()
+            })
+            .then(json => {
+              if (json?.explanation_short) {
+                setExplanations(prev => ({ ...prev, [pick.id]: json.explanation_short }))
+              }
+            })
+            .catch(() => {})
+        })
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -98,36 +117,47 @@ export default function PickHistoryPage() {
               <tbody>
                 {picks.map(pick => {
                   const atsColor = ATS_COLOR[pick.ats_result] ?? 'text-gray-500'
+                  const aiText   = explanations[pick.id] ?? null
                   return (
-                    <tr key={pick.id} className="border-b border-[#1a1a1a] hover:bg-[#111111] transition-colors">
-                      <td className="py-3 pr-4 text-gray-300">{pick.week}</td>
-                      <td className="py-3 pr-4 text-gray-300 whitespace-nowrap">
-                        {pick.away_team} @ {pick.home_team}
-                      </td>
-                      <td className="py-3 pr-4 text-[#CFB526] font-medium">{pick.pick_team}</td>
-                      <td className="py-3 pr-4 text-white">
-                        {pick.win_probability !== ''
-                          ? `${(pick.win_probability * 100).toFixed(1)}%`
-                          : '—'}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className="text-xs text-gray-300">{pick.confidence_label || '—'}</span>
-                      </td>
-                      <td className="py-3 pr-4 text-gray-300">
-                        {pick.spread !== '' ? pick.spread : '—'}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className={pick.outcome === 'WIN' ? 'text-green-400' : pick.outcome === 'LOSS' ? 'text-red-400' : 'text-gray-500'}>
-                          {pick.outcome || '—'}
-                        </span>
-                      </td>
-                      <td className={`py-3 pr-4 font-medium ${atsColor}`}>
-                        {pick.ats_result || '—'}
-                      </td>
-                      <td className="py-3 text-gray-300">
-                        {pick.clv !== '' && pick.clv !== null ? `${Number(pick.clv).toFixed(2)}` : '—'}
-                      </td>
-                    </tr>
+                    <>
+                      <tr key={pick.id} className="border-b border-[#1a1a1a] hover:bg-[#111111] transition-colors">
+                        <td className="py-3 pr-4 text-gray-300">{pick.week}</td>
+                        <td className="py-3 pr-4 text-gray-300 whitespace-nowrap">
+                          {pick.away_team} @ {pick.home_team}
+                        </td>
+                        <td className="py-3 pr-4 text-[#CFB526] font-medium">{pick.pick_team}</td>
+                        <td className="py-3 pr-4 text-white">
+                          {pick.win_probability !== ''
+                            ? `${(pick.win_probability * 100).toFixed(1)}%`
+                            : '—'}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className="text-xs text-gray-300">{pick.confidence_label || '—'}</span>
+                        </td>
+                        <td className="py-3 pr-4 text-gray-300">
+                          {pick.spread !== '' ? Number(pick.spread).toFixed(1) : '—'}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className={pick.outcome === 'WIN' ? 'text-green-400' : pick.outcome === 'LOSS' ? 'text-red-400' : 'text-gray-500'}>
+                            {pick.outcome || '—'}
+                          </span>
+                        </td>
+                        <td className={`py-3 pr-4 font-medium ${atsColor}`}>
+                          {pick.ats_result || '—'}
+                        </td>
+                        <td className="py-3 text-gray-300">
+                          {pick.clv !== '' && pick.clv !== null ? `${Number(pick.clv).toFixed(2)}` : '—'}
+                        </td>
+                      </tr>
+                      {aiText && (
+                        <tr key={`${pick.id}-ai`} className="border-b border-[#1a1a1a]">
+                          <td colSpan={9} className="pb-3 pt-0 px-0">
+                            <p className="text-xs text-gray-500 mb-0.5">AI Analysis</p>
+                            <p className="text-xs text-gray-400 leading-relaxed">{aiText}</p>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )
                 })}
               </tbody>

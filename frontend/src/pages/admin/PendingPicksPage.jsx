@@ -87,13 +87,13 @@ function PickCard({ pick, onApprove, onReject, isBusy }) {
         <span>
           Spread:{' '}
           <span className="text-white font-medium">
-            {pick.spread > 0 ? '+' : ''}{pick.spread}
+            {pick.spread > 0 ? '+' : ''}{Number(pick.spread).toFixed(1)}
           </span>
         </span>
         <span>
           Model Edge:{' '}
           <span className="text-white font-medium">
-            +{pick.model_spread_diff} pts
+            +{Number(pick.model_spread_diff).toFixed(1)} pts
           </span>
         </span>
       </div>
