@@ -45,7 +45,7 @@ cfb-agent/
 │   ├── schema.py
 │   └── migrations/
 │       ├── 002_picks_table.sql
-│       └── 003_pick_explanations.sql  # Phase 5 ⬜ pending Supabase run
+│       └── 003_pick_explanations.sql  # Phase 5 ✅
 ├── models/
 │   ├── win_probability.py
 │   ├── preseason_ratings.py
@@ -163,7 +163,7 @@ cfb-agent/
   - `FEATURE_DESCRIPTIONS` map covers all 21 model features with plain-English labels
 - **`/explanations` router** — `GET /explanations/{pick_id}` (public), `POST /explanations/generate/{pick_id}` (admin)
 - **Pick approval** — triggers `generate_and_store_explanation` as FastAPI BackgroundTask on approve
-- **`pick_explanations` table** — `db/migrations/003_pick_explanations.sql` ⬜ Run in Supabase
+- **`pick_explanations` table** — `db/migrations/003_pick_explanations.sql` ✅ Run in Supabase
 - **Frontend updates** — PendingPicksPage shows AI Analysis section + raw win prob; `featureDescriptions.js` shared map
 - **45 tests passing** — `test_platt.py`, `test_explanation_generator.py`, `test_explanations_api.py`
 - Key fix: `backend/tools/` is resolved via `sys.path` — always apply fixes to both root and backend copies
@@ -210,11 +210,15 @@ cfb-agent/
 
 ## Upcoming Phases
 
-| Phase | Description |
-|---|---|
-| 6 | Bayesian updating; in-season model recalibration |
-| 7 | Line value engine + spread_diff + weather; tighten flag threshold (consider abs(spread) > 20 filter) |
-| Launch | Late August 2026 |
+| Phase | Description | Target |
+|---|---|---|
+| 6 | Bayesian in-season updating + model recalibration | v1 |
+| 7 | Line value engine + spread_diff reintroduction + weather + power ratings pipeline (SP+ via CFBD, Sagarin scraper, Massey scraper → `power_ratings_comparison` table, z-score normalized, Sunday cron, dashboard widget) | v1 |
+| 8 | Groq → Claude Sonnet swap + Prompt Eval Agent (intentional Anthropic API portfolio signal) | v1 |
+| 9 | CLV dashboard + subscriber tracker (soft launch, $25/month) | v1 launch |
+| 10 | LangGraph multi-agent orchestration crew | v2 |
+| 11 | Bayesian capstone — full in-season updating at scale | v2 |
+| Launch | August 2026 | 🎯 |
 
 ---
 
@@ -248,11 +252,19 @@ cfb-agent/
 
 | Item | Phase |
 |---|---|
-| `spread_diff` as live feature | 7 |
-| Weather | 7 |
-| Groq → Claude Sonnet | 6 |
-| Bayesian updating | 6 |
-| Flag threshold tuning (abs(spread) > 20 filter) | 7 |
+| `spread_diff` as live feature (reintroduce using actual opening/closing lines from DB) | 7 |
+| Weather integration | 7 |
+| Power ratings pipeline (SP+ via CFBD, Sagarin + Massey scrapers → `power_ratings_comparison`) | 7 |
+| Spread display bug fix (too many decimals) | 7 |
+| Blowout filter (`abs(spread) <= 20`) | 7 |
+| Tighter `model_spread_diff` threshold (`>= 5.0`) | 7 |
+| Delete/undo on history page | 7 |
+| Groq → Claude Sonnet swap + Prompt Eval Agent | 8 |
+| CLV dashboard | 9 |
+| Subscriber tracker | 9 |
+| SendGrid custom domain + sender authentication (emails landing in junk) | 9 |
+| LangGraph multi-agent architecture | 10 |
+| Bayesian capstone | 11 |
 | 2026 schedule (swap from 2025 demo) | When CFB API publishes it |
 
 ---
@@ -308,4 +320,4 @@ VITE_ADMIN_API_KEY=
 
 ---
 
-*Last updated: Phase 5 complete. Platt scaling live, AI explanations wired to pick approval, 45 tests passing. Pending: run 003_pick_explanations.sql in Supabase.*
+*Last updated: Phase 5 complete. Platt scaling live, AI explanations wired to pick approval, 45 tests passing. pick_explanations migration run in Supabase. Next: Phase 6 — Bayesian updating.*
