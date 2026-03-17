@@ -31,6 +31,27 @@ def _require_admin(credentials: HTTPAuthorizationCredentials = Depends(_security
 
 
 # ---------------------------------------------------------------------------
+# Background task helpers
+# ---------------------------------------------------------------------------
+
+def _run_explanation_bg(pick_id: str) -> None:
+    """Generate and store an AI explanation for a pick in the background.
+
+    Called as a FastAPI BackgroundTask immediately after a pick is inserted
+    by flag_picks(). Wraps generate_and_store_explanation() in try/except
+    so failures never surface to the flag response.
+
+    Args:
+        pick_id: UUID string of the newly inserted pick.
+    """
+    try:
+        from tools.explanation_generator import generate_and_store_explanation
+        generate_and_store_explanation(pick_id)
+    except Exception as exc:
+        logger.error("Background explanation generation failed for pick %s: %s", pick_id, exc)
+
+
+# ---------------------------------------------------------------------------
 # Pure helpers (importable for tests)
 # ---------------------------------------------------------------------------
 
@@ -110,6 +131,7 @@ def _directed_spread_diff(
 def flag_picks(
     season: int = Query(..., description="Season year"),
     week: int = Query(..., description="Week number"),
+    background_tasks: BackgroundTasks = None,
     _: None = Depends(_require_admin),
 ):
     """Flag picks for a given season and week.
@@ -216,7 +238,7 @@ def flag_picks(
         }
 
         with engine.begin() as conn:
-            conn.execute(
+            inserted = conn.execute(
                 text("""
                     INSERT INTO picks (
                         game_id, season, week, home_team, away_team, pick_team,
@@ -226,11 +248,16 @@ def flag_picks(
                         :win_probability, :spread, :model_spread_diff, :confidence_label
                     )
                     ON CONFLICT (game_id) DO NOTHING
+                    RETURNING id
                 """),
                 pick_row,
-            )
+            ).fetchone()
 
-        flagged.append(pick_row)
+        if inserted:
+            pick_id = str(inserted[0])
+            flagged.append(pick_row)
+            if background_tasks is not None:
+                background_tasks.add_task(_run_explanation_bg, pick_id)
 
     if flagged:
         try:
@@ -348,13 +375,12 @@ def get_pending_picks():
 @router.post("/{pick_id}/approve")
 def approve_pick(
     pick_id: str,
-    background_tasks: BackgroundTasks = None,
     _: None = Depends(_require_admin),
 ):
     """Approve a pick by UUID, recording the approval timestamp.
 
-    After setting approved=True, enqueues AI explanation generation as a
-    background task so the approval response is not delayed.
+    Explanations are generated at flag time via _run_explanation_bg(), so
+    no additional generation is triggered here.
     """
     with engine.begin() as conn:
         result = conn.execute(
@@ -363,16 +389,6 @@ def approve_pick(
         )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Pick not found")
-
-    def _generate_explanation(pid: str) -> None:
-        try:
-            from tools.explanation_generator import generate_and_store_explanation
-            generate_and_store_explanation(pid)
-        except Exception as exc:
-            logger.error("Background explanation generation failed for pick %s: %s", pid, exc)
-
-    if background_tasks is not None:
-        background_tasks.add_task(_generate_explanation, pick_id)
 
     return {"approved": True, "pick_id": pick_id}
 

@@ -35,7 +35,7 @@ export default function Navbar() {
         <span className="text-[#C9A84C] font-bold text-xl tracking-tight">CFB Agent</span>
 
         <div className="flex items-center gap-6">
-          <NavLink to="/" end className={navLink}>Schedule</NavLink>
+          <NavLink to="/games" className={navLink}>Games</NavLink>
           <NavLink to="/rankings" className={navLink}>Power Rankings</NavLink>
           <NavLink to="/picks" className={navLink}>Picks</NavLink>
 

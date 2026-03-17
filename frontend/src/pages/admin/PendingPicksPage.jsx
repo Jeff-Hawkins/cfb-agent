@@ -103,7 +103,7 @@ function PickCard({ pick, onApprove, onReject, isBusy }) {
         </span>
         <span>
           Edge:{' '}
-          <span className="text-white font-medium">+{edge} pts</span>
+          <span className="text-white font-medium">{edge} pts</span>
         </span>
       </div>
 

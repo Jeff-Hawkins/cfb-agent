@@ -1,7 +1,7 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import ProtectedRoute from './components/ProtectedRoute'
-import SchedulePage from './pages/SchedulePage'
+import GamesPage from './pages/GamesPage'
 import RankingsPage from './pages/RankingsPage'
 import LoginPage from './pages/LoginPage'
 import PendingPicksPage from './pages/admin/PendingPicksPage'
@@ -15,7 +15,8 @@ export default function App() {
         <Navbar />
         <main className="pt-16">
           <Routes>
-            <Route path="/"       element={<SchedulePage />} />
+            <Route path="/"       element={<Navigate to="/games" replace />} />
+            <Route path="/games"  element={<GamesPage />} />
             <Route path="/rankings" element={<RankingsPage />} />
             <Route path="/picks"    element={<PublicPicksPage />} />
             <Route path="/login"  element={<LoginPage />} />

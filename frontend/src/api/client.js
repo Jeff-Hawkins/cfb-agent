@@ -94,6 +94,18 @@ export async function getApprovedPicks() {
 }
 
 /**
+ * Fetch weekly game predictions with model vs Vegas comparison (no auth required).
+ * @param {number} season - Season year.
+ * @param {number} week - Week number (1–15).
+ * @returns {Promise<Object[]>} Array of game prediction objects sorted by model_edge desc.
+ */
+export async function getWeeklyGames(season, week) {
+  const res = await fetch(`${BASE}/games/weekly?season=${season}&week=${week}`)
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+/**
  * Fetch public approved picks for a season/week (no auth required).
  * @param {number} season - Season year.
  * @param {number|null} [week] - Week number. Omit to get most recent week with picks.

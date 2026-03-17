@@ -140,5 +140,64 @@ class TestRecalculateSpreadsAuth(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
 
+class TestFlagExplanationBackgroundTask(unittest.TestCase):
+    """flag_picks should enqueue generate_and_store_explanation for each inserted pick."""
+
+    @patch("routers.picks.engine")
+    @patch("routers.picks.query_db")
+    @patch("models.win_probability.predict_win_probability", return_value=0.72)
+    @patch("services.notifications.send_picks_ready_email")
+    def test_explanation_queued_on_insert(self, mock_email, mock_predict, mock_qdb, mock_engine):
+        """Background task should be added with the correct pick_id after a successful insert."""
+        games_df = pd.DataFrame([{
+            "id": "1001", "homeTeam": "Alabama", "awayTeam": "Auburn", "neutralSite": False,
+        }])
+        lines_df = pd.DataFrame([{"game_id": "1001", "spread": -14.0}])
+        mock_qdb.side_effect = [games_df, lines_df]
+
+        conn = MagicMock()
+        # Simulate RETURNING id returning a UUID row
+        conn.execute.return_value.fetchone.return_value = ("test-pick-uuid",)
+        mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
+        mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_bg = MagicMock()
+
+        from routers.picks import flag_picks
+        result = flag_picks(season=2025, week=1, background_tasks=mock_bg, _=None)
+
+        self.assertEqual(result["flagged"], 1)
+        mock_bg.add_task.assert_called_once()
+        # Second positional arg to add_task is the pick_id string
+        _, call_pick_id = mock_bg.add_task.call_args[0]
+        self.assertEqual(call_pick_id, "test-pick-uuid")
+
+    @patch("routers.picks.engine")
+    @patch("routers.picks.query_db")
+    @patch("models.win_probability.predict_win_probability", return_value=0.72)
+    @patch("services.notifications.send_picks_ready_email")
+    def test_no_task_when_conflict(self, mock_email, mock_predict, mock_qdb, mock_engine):
+        """No background task should be queued when INSERT is skipped due to ON CONFLICT."""
+        games_df = pd.DataFrame([{
+            "id": "1001", "homeTeam": "Alabama", "awayTeam": "Auburn", "neutralSite": False,
+        }])
+        lines_df = pd.DataFrame([{"game_id": "1001", "spread": -14.0}])
+        mock_qdb.side_effect = [games_df, lines_df]
+
+        conn = MagicMock()
+        # Simulate ON CONFLICT DO NOTHING — RETURNING returns nothing
+        conn.execute.return_value.fetchone.return_value = None
+        mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
+        mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_bg = MagicMock()
+
+        from routers.picks import flag_picks
+        result = flag_picks(season=2025, week=1, background_tasks=mock_bg, _=None)
+
+        self.assertEqual(result["flagged"], 0)
+        mock_bg.add_task.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

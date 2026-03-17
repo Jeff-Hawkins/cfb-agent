@@ -120,7 +120,7 @@ function PickCard({ pick }) {
         <span>
           Edge:{' '}
           <span className="text-white font-medium">
-            {pick.spread !== '' ? `+${edge} pts` : '—'}
+            {pick.spread !== '' ? `${edge} pts` : '—'}
           </span>
         </span>
       </div>
