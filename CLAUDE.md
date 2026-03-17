@@ -44,7 +44,8 @@ cfb-agent/
 │   ├── database.py
 │   ├── schema.py
 │   └── migrations/
-│       └── 002_picks_table.sql
+│       ├── 002_picks_table.sql
+│       └── 003_pick_explanations.sql  # Phase 5 ⬜ pending Supabase run
 ├── models/
 │   ├── win_probability.py
 │   ├── preseason_ratings.py
@@ -70,7 +71,11 @@ cfb-agent/
 │   │   ├── matchup.py
 │   │   ├── rankings.py
 │   │   ├── games.py
-│   │   └── picks.py                # Phase 4.5
+│   │   ├── picks.py                # Phase 4.5
+│   │   └── explanations.py         # Phase 5
+│   ├── tools/                      # copied from root tools/ for Railway
+│   │   ├── explanation_generator.py  # Phase 5
+│   │   └── platt_scaler.py           # Phase 5
 │   └── services/
 │       └── notifications.py        # Phase 4.5 — SendGrid email
 ├── frontend/                       # React frontend — deployed on Vercel
@@ -103,7 +108,10 @@ cfb-agent/
 │       └── weekly_pipeline.yml     # Phase 4.5 — Tue flag + Sun outcomes
 ├── tests/
 │   ├── test_api.py
-│   └── test_picks.py               # Phase 4.5 — 19 tests
+│   ├── test_picks.py               # Phase 4.5 — 15 tests
+│   ├── test_platt.py               # Phase 5
+│   ├── test_explanation_generator.py  # Phase 5
+│   └── test_explanations_api.py    # Phase 5
 ├── app.py                          # Streamlit UI (legacy)
 ├── main.py
 ├── .env                            # Never commit — credentials here
@@ -143,6 +151,23 @@ cfb-agent/
 - Components: Navbar, GameCard, WinProbGauge, ConfidenceBadge, LoadingSkeleton
 - Vercel deploy pending (env vars needed)
 
+### Phase 5 (commit `93cd21d`) ✅
+- **Platt scaling** — `models/platt_scaler.py` + `backend/models/saved/platt_scaler.joblib`
+  - `CalibratedClassifierCV(method='sigmoid')` trained on LightGBM outputs
+  - `calibrate_probability(raw_prob)` applied after every prediction
+  - `predict_win_probability` now returns `{win_prob, raw_win_prob}` dict; `MODEL_VERSION = "2.0.0"`
+- **AI Explanations** — `tools/explanation_generator.py` (+ backend copy)
+  - `build_feature_snapshot()` — queries all 6 data tables, returns labelled feature dict
+  - `generate_explanation_short()` / `generate_explanation_full()` — Groq `llama-3.3-70b-versatile` at temp=0.1
+  - `generate_and_store_explanation()` — upserts into `pick_explanations` table
+  - `FEATURE_DESCRIPTIONS` map covers all 21 model features with plain-English labels
+- **`/explanations` router** — `GET /explanations/{pick_id}` (public), `POST /explanations/generate/{pick_id}` (admin)
+- **Pick approval** — triggers `generate_and_store_explanation` as FastAPI BackgroundTask on approve
+- **`pick_explanations` table** — `db/migrations/003_pick_explanations.sql` ⬜ Run in Supabase
+- **Frontend updates** — PendingPicksPage shows AI Analysis section + raw win prob; `featureDescriptions.js` shared map
+- **45 tests passing** — `test_platt.py`, `test_explanation_generator.py`, `test_explanations_api.py`
+- Key fix: `backend/tools/` is resolved via `sys.path` — always apply fixes to both root and backend copies
+
 ### Phase 4.5 (commits `abc05a3`, `1ca521b`, `6f5925f`) ✅
 - **picks table** — `db/migrations/002_picks_table.sql` — run against Supabase ✅
 - **`/picks` router** — flag, pending, approve, reject, approved, update-outcomes
@@ -171,32 +196,15 @@ cfb-agent/
 
 ## Current Phase
 
-### Next: Vercel Deploy + Phase 5 Prep 🔄
+### Next: Phase 6 — Bayesian Updating + Vercel Deploy 🔄
 
-**Vercel deploy checklist:**
-1. Sign in to vercel.com with GitHub
-2. Import `cfb-agent` repo — root directory: `frontend`
-3. Build command: `npm run build` | Output: `dist`
-4. Set env vars in Vercel dashboard:
-   ```
-   VITE_API_URL=https://cfb-agent-production.up.railway.app
-   VITE_SUPABASE_URL=
-   VITE_SUPABASE_ANON_KEY=
-   VITE_ADMIN_API_KEY=
-   ```
-
-**Railway secrets still needed:**
-```
-SENDGRID_API_KEY=
-NOTIFY_EMAIL=
-ADMIN_API_KEY=        ← already set
-```
-
-**GitHub Actions secrets needed:**
-```
-RAILWAY_BACKEND_URL=https://cfb-agent-production.up.railway.app
-ADMIN_API_KEY=
-```
+**Pending manual steps:**
+1. Run `db/migrations/003_pick_explanations.sql` in Supabase SQL Editor
+2. Vercel deploy (if not yet done):
+   - Root directory: `frontend` | Build: `npm run build` | Output: `dist`
+   - Env vars: `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ADMIN_API_KEY`
+3. Railway secrets: `SENDGRID_API_KEY`, `NOTIFY_EMAIL` (ADMIN_API_KEY already set)
+4. GitHub Actions secrets: `RAILWAY_BACKEND_URL`, `ADMIN_API_KEY`
 
 ---
 
@@ -204,8 +212,7 @@ ADMIN_API_KEY=
 
 | Phase | Description |
 |---|---|
-| 5 | Deploy Vercel + swap Groq → Claude Sonnet |
-| 6 | Bayesian updating + Platt scaling |
+| 6 | Bayesian updating; in-season model recalibration |
 | 7 | Line value engine + spread_diff + weather; tighten flag threshold (consider abs(spread) > 20 filter) |
 | Launch | Late August 2026 |
 
@@ -228,7 +235,7 @@ ADMIN_API_KEY=
 - LightGBM | 21 features | Train 2021–2024 | Test 2025
 - Accuracy: 78.22% | Brier: 0.1569
 - Known limits: no injury/rankings/momentum data
-- Calibration: well-calibrated 0.3–0.7; overconfident at extremes (>0.9 predicted → ~90.6% actual). Platt scaling deferred to Phase 6.
+- Calibration: Platt scaling (`CalibratedClassifierCV`) applied as of Phase 5. Raw prob preserved as `raw_win_prob`.
 
 ### Preseason Composite
 - 72.87% backtest accuracy (2024)
@@ -242,9 +249,8 @@ ADMIN_API_KEY=
 | Item | Phase |
 |---|---|
 | `spread_diff` as live feature | 7 |
-| Platt scaling | 6 |
 | Weather | 7 |
-| Groq → Claude Sonnet | 5 |
+| Groq → Claude Sonnet | 6 |
 | Bayesian updating | 6 |
 | Flag threshold tuning (abs(spread) > 20 filter) | 7 |
 | 2026 schedule (swap from 2025 demo) | When CFB API publishes it |
@@ -302,4 +308,4 @@ VITE_ADMIN_API_KEY=
 
 ---
 
-*Last updated: Phase 4.5 complete. picks table live, 38 picks flagged for Week 1 2025. Vercel deploy pending.*
+*Last updated: Phase 5 complete. Platt scaling live, AI explanations wired to pick approval, 45 tests passing. Pending: run 003_pick_explanations.sql in Supabase.*
