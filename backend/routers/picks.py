@@ -6,7 +6,7 @@ All POST endpoints require a Bearer token matching the ADMIN_API_KEY env var.
 
 import os
 import logging
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import text
 from db.database import engine, query_db
@@ -78,17 +78,13 @@ def flag_picks(
 ):
     """Flag picks for a given season and week.
 
-    For each FBS game in the week, runs the LightGBM model and compares to
-    consensus betting lines. Flags picks where win_probability >= 0.65 AND
-    model_spread_diff >= 3.0. Inserts into picks table (skips duplicates).
-    Sends email notification when at least one pick is flagged.
-
-    Performance note: model and all data tables are loaded once before the
-    game loop to avoid ~300+ redundant DB queries and file loads.
+    For each FBS game in the week, runs the LightGBM model (with Platt
+    calibration) and compares to consensus betting lines. Flags picks where
+    win_probability >= 0.65 AND model_spread_diff >= 3.0. Inserts into the
+    picks table (skips duplicates). Sends email notification when at least one
+    pick is flagged.
     """
-    import os
-    import joblib
-    import pandas as pd
+    from models.win_probability import predict_win_probability
     from services.notifications import send_picks_ready_email
 
     games_df = query_db(f"""
@@ -110,55 +106,25 @@ def flag_picks(
     """)
     lines_map = dict(zip(lines_df["game_id"].astype(str), lines_df["spread"]))
 
-    # Pre-load model and all reference tables once — reused for every game
-    if season == 2026:
-        from models.win_probability import _predict_from_preseason_composite as _preseason_pred
-        _model = None
-        _feature_cols = None
-        _profiles = _sp = _rec = _ret = _coa = _elo = _talent = _available_stats = None
-    else:
-        from models.win_probability import (
-            build_team_profiles,
-            _load_sp, _load_recruiting, _load_returning,
-            _load_coaches, _load_elo, _load_talent,
-            _build_features,
-        )
-        _saved = os.path.join(os.path.dirname(__file__), "..", "models", "saved")
-        _model        = joblib.load(os.path.join(_saved, "win_prob_model.pkl"))
-        _feature_cols = joblib.load(os.path.join(_saved, "feature_cols.pkl"))
-
-        _profiles = build_team_profiles()
-        _key_stats = ["pointsPerGame", "passingYards", "rushingYards", "turnovers", "fumblesLost"]
-        _available_stats = [s for s in _key_stats if s in _profiles.columns]
-        _profiles = _profiles[["team", "season"] + _available_stats].fillna(0)
-
-        _sp     = _load_sp()
-        _rec    = _load_recruiting()
-        _ret    = _load_returning()
-        _coa    = _load_coaches()
-        _elo    = _load_elo()
-        _talent = _load_talent()
-
     flagged = []
 
     for _, game in games_df.iterrows():
         game_id = str(game["id"])
         home    = game["homeTeam"]
         away    = game["awayTeam"]
-        neutral = bool(game["neutralSite"])
 
-        # Predict using pre-loaded data
-        if season == 2026:
-            home_win_prob = _preseason_pred(home, away, "preseason_2026")
+        result = predict_win_probability(home, away, season)
+
+        if isinstance(result, str):
+            logger.warning("No prediction for %s vs %s: %s", home, away, result)
+            continue
+
+        # result is either a dict {"win_prob": ..., "raw_win_prob": ...} or a float
+        # (preseason composite path returns a plain float)
+        if isinstance(result, dict):
+            home_win_prob = result["win_prob"]
         else:
-            feats = _build_features(
-                home, away, season,
-                _profiles, _sp, _rec, _ret, _coa, _available_stats, _elo, _talent, neutral,
-            )
-            if feats is None:
-                logger.warning("No features for %s vs %s %d", home, away, season)
-                continue
-            home_win_prob = float(_model.predict_proba(pd.DataFrame([feats])[_feature_cols])[0][1])
+            home_win_prob = float(result)
 
         if isinstance(home_win_prob, str):
             logger.warning("No prediction for %s vs %s: %s", home, away, home_win_prob)
@@ -239,9 +205,14 @@ def get_pending_picks():
 @router.post("/{pick_id}/approve")
 def approve_pick(
     pick_id: str,
+    background_tasks: BackgroundTasks = None,
     _: None = Depends(_require_admin),
 ):
-    """Approve a pick by UUID, recording the approval timestamp."""
+    """Approve a pick by UUID, recording the approval timestamp.
+
+    After setting approved=True, enqueues AI explanation generation as a
+    background task so the approval response is not delayed.
+    """
     with engine.begin() as conn:
         result = conn.execute(
             text("UPDATE picks SET approved = true, approval_timestamp = NOW() WHERE id = :id"),
@@ -249,6 +220,17 @@ def approve_pick(
         )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Pick not found")
+
+    def _generate_explanation(pid: str) -> None:
+        try:
+            from tools.explanation_generator import generate_and_store_explanation
+            generate_and_store_explanation(pid)
+        except Exception as exc:
+            logger.error("Background explanation generation failed for pick %s: %s", pid, exc)
+
+    if background_tasks is not None:
+        background_tasks.add_task(_generate_explanation, pick_id)
+
     return {"approved": True, "pick_id": pick_id}
 
 

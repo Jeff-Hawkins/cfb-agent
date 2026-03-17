@@ -1,9 +1,15 @@
 /**
  * PendingPicksPage — admin view for approving or rejecting flagged picks.
  * Picks are removed from the UI immediately on approve/reject.
+ * Each card fetches its AI explanation from GET /explanations/{pick_id}.
  */
 import { useEffect, useState } from 'react'
 import { getPendingPicks, approvePick, rejectPick } from '../../api/client'
+// FEATURE_DESCRIPTIONS is imported for use in future feature-table expansion
+// eslint-disable-next-line no-unused-vars
+import { FEATURE_DESCRIPTIONS } from '../../utils/featureDescriptions'
+
+const API_URL = import.meta.env.VITE_API_URL ?? ''
 
 const LABEL_COLORS = {
   Lean:     'bg-yellow-700 text-yellow-100',
@@ -16,6 +22,115 @@ function ConfidencePill({ label }) {
     <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${LABEL_COLORS[label] ?? 'bg-gray-700 text-gray-200'}`}>
       {label}
     </span>
+  )
+}
+
+/**
+ * PickCard — renders a single pending pick with stats and AI analysis.
+ * Fetches its own explanation independently so cards load in parallel.
+ */
+function PickCard({ pick, onApprove, onReject, isBusy }) {
+  const [analysis, setAnalysis]         = useState(null)   // string when loaded
+  const [analysisState, setAnalysisState] = useState('loading') // 'loading' | 'ready' | 'pending' | 'error'
+
+  const isHome = pick.pick_team === pick.home_team
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchExplanation() {
+      try {
+        const res = await fetch(`${API_URL}/explanations/${pick.id}`)
+        if (cancelled) return
+        if (res.status === 404) {
+          setAnalysisState('pending')
+          return
+        }
+        if (!res.ok) {
+          setAnalysisState('error')
+          return
+        }
+        const data = await res.json()
+        setAnalysis(data.explanation_short ?? null)
+        setAnalysisState('ready')
+      } catch {
+        if (!cancelled) setAnalysisState('error')
+      }
+    }
+    fetchExplanation()
+    return () => { cancelled = true }
+  }, [pick.id])
+
+  return (
+    <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
+      {/* Matchup header */}
+      <p className="text-gray-400 text-xs mb-1">
+        {pick.away_team} @ {pick.home_team} — Week {pick.week}
+      </p>
+
+      {/* Pick team (gold) */}
+      <div className="flex items-center gap-3 mb-3">
+        <span className="text-[#CFB526] font-bold text-lg">
+          {pick.pick_team}
+        </span>
+        <span className="text-gray-500 text-xs">{isHome ? 'HOME' : 'AWAY'}</span>
+        <ConfidencePill label={pick.confidence_label} />
+      </div>
+
+      {/* Stats row — always above AI Analysis */}
+      <div className="flex gap-6 text-sm text-gray-300 mb-4">
+        <span>
+          Win Prob:{' '}
+          <span className="text-white font-medium">
+            {(pick.win_probability * 100).toFixed(1)}%
+          </span>
+        </span>
+        <span>
+          Spread:{' '}
+          <span className="text-white font-medium">
+            {pick.spread > 0 ? '+' : ''}{pick.spread}
+          </span>
+        </span>
+        <span>
+          Model Edge:{' '}
+          <span className="text-white font-medium">
+            +{pick.model_spread_diff} pts
+          </span>
+        </span>
+      </div>
+
+      {/* AI Analysis section */}
+      <div className="mb-4">
+        <p className="text-gray-500 text-xs mb-1">AI Analysis</p>
+        {analysisState === 'loading' && (
+          <p className="text-gray-500 text-sm">Loading analysis...</p>
+        )}
+        {analysisState === 'ready' && analysis && (
+          <p className="text-gray-300 text-sm leading-relaxed">{analysis}</p>
+        )}
+        {analysisState === 'pending' && (
+          <p className="text-gray-500 text-sm italic">Analysis generating...</p>
+        )}
+        {/* error: fail silently — nothing rendered */}
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => onApprove(pick.id)}
+          disabled={isBusy}
+          className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors"
+        >
+          Approve
+        </button>
+        <button
+          onClick={() => onReject(pick.id)}
+          disabled={isBusy}
+          className="bg-red-800 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors"
+        >
+          Reject
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -69,67 +184,15 @@ export default function PendingPicksPage() {
         <p className="text-gray-500 text-sm">No picks pending review.</p>
       ) : (
         <div className="flex flex-col gap-4">
-          {picks.map(pick => {
-            const opponent = pick.pick_team === pick.home_team ? pick.away_team : pick.home_team
-            const isHome   = pick.pick_team === pick.home_team
-            return (
-              <div key={pick.id} className="bg-[#111111] border border-[#222222] rounded-xl p-5">
-                {/* Matchup header */}
-                <p className="text-gray-400 text-xs mb-1">
-                  {pick.away_team} @ {pick.home_team} — Week {pick.week}
-                </p>
-
-                {/* Pick team (gold) */}
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-[#CFB526] font-bold text-lg">
-                    {pick.pick_team}
-                  </span>
-                  <span className="text-gray-500 text-xs">{isHome ? 'HOME' : 'AWAY'}</span>
-                  <ConfidencePill label={pick.confidence_label} />
-                </div>
-
-                {/* Stats row */}
-                <div className="flex gap-6 text-sm text-gray-300 mb-4">
-                  <span>
-                    Win Prob:{' '}
-                    <span className="text-white font-medium">
-                      {(pick.win_probability * 100).toFixed(1)}%
-                    </span>
-                  </span>
-                  <span>
-                    Spread:{' '}
-                    <span className="text-white font-medium">
-                      {pick.spread > 0 ? '+' : ''}{pick.spread}
-                    </span>
-                  </span>
-                  <span>
-                    Model Edge:{' '}
-                    <span className="text-white font-medium">
-                      +{pick.model_spread_diff} pts
-                    </span>
-                  </span>
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => handleApprove(pick.id)}
-                    disabled={busy[pick.id]}
-                    className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleReject(pick.id)}
-                    disabled={busy[pick.id]}
-                    className="bg-red-800 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            )
-          })}
+          {picks.map(pick => (
+            <PickCard
+              key={pick.id}
+              pick={pick}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              isBusy={!!busy[pick.id]}
+            />
+          ))}
         </div>
       )}
     </div>

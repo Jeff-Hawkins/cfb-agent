@@ -7,6 +7,8 @@ from sklearn.metrics import brier_score_loss
 import joblib
 import os
 
+MODEL_VERSION = "2.0.0"
+
 RECENCY_WEIGHTS = {2021: 0.2, 2022: 0.4, 2023: 0.6, 2024: 0.8, 2025: 1.0}
 
 # ---------------------------------------------------------------------------
@@ -314,6 +316,27 @@ def _predict_from_preseason_composite(home_team: str, away_team: str, table: str
 
 
 def predict_win_probability(home_team: str, away_team: str, season: int = 2024):
+    """Predict home team win probability for a given matchup and season.
+
+    For the 2026 season, falls back to a logistic model built on preseason
+    composite ratings (no in-season data is available yet).  For all other
+    seasons the trained LightGBM model is used, and the raw output is
+    calibrated with the fitted Platt scaler before being returned.
+
+    Args:
+        home_team: Name of the home team as it appears in the database.
+        away_team: Name of the away team as it appears in the database.
+        season: Season year (default 2024).
+
+    Returns:
+        On success: dict with keys ``win_prob`` (calibrated float) and
+            ``raw_win_prob`` (uncalibrated float), both rounded to 4 d.p.
+        On error: a plain string describing which team had no data.
+            Error strings are kept as-is so callers can detect them with
+            ``isinstance(result, str)``.
+    """
+    from models.platt_scaler import calibrate_probability
+
     # 2026: no in-season data yet — use preseason composite ratings
     if season == 2026:
         return _predict_from_preseason_composite(home_team, away_team, "preseason_2026")
@@ -346,8 +369,9 @@ def predict_win_probability(home_team: str, away_team: str, season: int = 2024):
         return f"No data found for {away_team} in {season}"
 
     X = pd.DataFrame([features])[feature_cols]
-    prob = model.predict_proba(X)[0][1]
-    return round(float(prob), 4)
+    raw_win_prob = round(float(model.predict_proba(X)[0][1]), 4)
+    win_prob = calibrate_probability(raw_win_prob)
+    return {"win_prob": win_prob, "raw_win_prob": raw_win_prob}
 
 
 if __name__ == "__main__":
