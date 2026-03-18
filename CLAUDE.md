@@ -214,13 +214,27 @@ cfb-agent/
 - **Groq prompt fix** — historical framing for all feature statistics
 - **88 tests passing**
 
+### Phase 6.5 (commits since Phase 6) ✅
+- **V2 model productionized** — 17 features, isotonic calibration
+  - **Accuracy:** 64.59% | **Brier:** 0.2152 (2025 holdout)
+  - **New Features:** `offense_lineYards_diff`, `defense_stuffRate_diff` (top 5 importance)
+  - **Neutral Defaults:** 0.009 for line yards diff, 0.0016 for stuff rate diff
+  - **Absolute Fallbacks:** 3.04 (yards) and 0.179 (stuff rate) for single-team data gaps
+  - **Data source:** `advanced_stats` table, populated by `fetch_advanced_stats()`
+  - **Artifacts:** `win_prob_model_v2.pkl`, `platt_scaler_v2.joblib` (isotonic), `feature_cols_v2.pkl`
+  - **Note:** `platt_scaler_v2.joblib` is actually isotonic — rename in Phase 7 cleanup
+  - **V1 cleanup:** artifacts flagged for deletion in Phase 7
+- **107 tests passing** — `tests/test_model_retrain.py` updated for 17 features
+
 ---
 
 ## Current Phase
 
 ### Next: Phase 7 — Line Value Engine + Weather + Power Ratings Pipeline 🔄
 
-Phase 6 complete. All deliverables live in production:
+Phase 6.5 complete. All deliverables live in production:
+- ✅ V2 production model (17 features, isotonic calibration)
+- ✅ Line play features added (top 5 importance)
 - ✅ Corrected spread_diff formula (real betting lines, home/away sign convention)
 - ✅ Updated flag thresholds (abs(spread)<=17, win_prob>=0.65, abs(spread_diff)>=5.0)
 - ✅ Public picks page (/picks — no auth, fully open Season 1)
@@ -229,7 +243,7 @@ Phase 6 complete. All deliverables live in production:
 - ✅ AI explanation generated at flag time (not approval time)
 - ✅ Shared constants file (backend/constants.py)
 - ✅ Batch prediction (47 games in ~5s vs 2+ minutes previously)
-- ✅ 88 tests passing
+- ✅ 107 tests passing
 
 ---
 

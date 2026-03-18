@@ -8,7 +8,7 @@ import joblib
 import os
 
 MODEL_VERSION = "2.0.0"
-MODEL_VERSION_V2 = "2.1.0"  # 15 features, clipped outliers, season-1 lookups, portal added
+MODEL_VERSION_V2 = "2.1.0"  # 17 features, isotonic calibration, line play added
 
 RECENCY_WEIGHTS = {2021: 0.2, 2022: 0.4, 2023: 0.6, 2024: 0.8, 2025: 1.0}
 
@@ -512,6 +512,17 @@ def _load_portal_v2():
     )
 
 
+def _load_line_play(season):
+    """Load line play metrics from advanced_stats for season-1."""
+    return query_db(f"""
+        SELECT team, season,
+               "offense_lineYards" as "offense_lineYards",
+               "defense_stuffRate" as "defense_stuffRate"
+        FROM advanced_stats
+        WHERE season = {season}
+    """)
+
+
 def _scalar_v2(df, team_col, year_col, val_col, team, year, default=None):
     """Generic scalar lookup from a reference DataFrame. Returns default when missing."""
     row = df[(df[team_col] == team) & (df[year_col] == year)]
@@ -539,10 +550,10 @@ def _sp_vals_v2(sp, team, year):
 
 def _build_features_v2(
     home_team, away_team, season,
-    sp, rec, ret, coa, elo, talent, portal,
+    sp, rec, ret, coa, elo, talent, portal, line,
     neutral_site=False,
 ):
-    """Build the 15 v2 features for a single game.
+    """Build the 17 v2 features for a single game.
 
     All reference tables are looked up at year = season - 1 (prior-season data),
     matching the information available before any game is played.
@@ -593,6 +604,29 @@ def _build_features_v2(
     a_elo = _scalar_v2(elo, "team", "year", "elo", away_team, ly, default=0.0)
     f["elo_diff"] = h_elo - a_elo
 
+    # Line Play features (using neutral defaults from training data)
+    h_ly = _scalar_v2(line, "team", "season", "offense_lineYards", home_team, ly, default=None)
+    a_ly = _scalar_v2(line, "team", "season", "offense_lineYards", away_team, ly, default=None)
+    if h_ly is not None and a_ly is not None:
+        f["offense_lineYards_diff"] = h_ly - a_ly
+    elif h_ly is not None:
+        f["offense_lineYards_diff"] = h_ly - 3.04
+    elif a_ly is not None:
+        f["offense_lineYards_diff"] = 3.04 - a_ly
+    else:
+        f["offense_lineYards_diff"] = 0.009
+
+    h_sr = _scalar_v2(line, "team", "season", "defense_stuffRate", home_team, ly, default=None)
+    a_sr = _scalar_v2(line, "team", "season", "defense_stuffRate", away_team, ly, default=None)
+    if h_sr is not None and a_sr is not None:
+        f["defense_stuffRate_diff"] = h_sr - a_sr
+    elif h_sr is not None:
+        f["defense_stuffRate_diff"] = h_sr - 0.179
+    elif a_sr is not None:
+        f["defense_stuffRate_diff"] = 0.179 - a_sr
+    else:
+        f["defense_stuffRate_diff"] = 0.0016
+
     f["neutral_site"] = 1 if neutral_site else 0
     f["home_field"]   = 0 if neutral_site else 1
 
@@ -604,8 +638,8 @@ def _build_features_v2(
     return f
 
 
-def _load_v2_tables():
-    """Load all seven v2 reference tables once and return as a tuple."""
+def _load_v2_tables(season=None):
+    """Load all reference tables once and return as a tuple."""
     return (
         _load_sp(),
         _load_recruiting(),
@@ -614,6 +648,7 @@ def _load_v2_tables():
         _load_elo(),
         _load_talent(),
         _load_portal_v2(),
+        _load_line_play(season - 1) if season else None,
     )
 
 
@@ -623,10 +658,10 @@ def predict_win_probability_v2(
     season: int = 2025,
     neutral_site: bool = False,
 ):
-    """Predict home-team win probability using the v2 15-feature model.
+    """Predict home-team win probability using the v2 17-feature model.
 
     Uses season-1 lookups for all features and clips outlier-prone features
-    before inference. Platt-calibrated output is returned.
+    before inference. Isotonic-calibrated output is returned.
 
     Args:
         home_team: Home team name as it appears in the DB.
@@ -648,11 +683,11 @@ def predict_win_probability_v2(
 
     model        = joblib.load(model_path)
     feature_cols = joblib.load(cols_path)
-    sp, rec, ret, coa, elo, talent, portal = _load_v2_tables()
+    sp, rec, ret, coa, elo, talent, portal, line = _load_v2_tables(season)
 
     features = _build_features_v2(
         home_team, away_team, season,
-        sp, rec, ret, coa, elo, talent, portal,
+        sp, rec, ret, coa, elo, talent, portal, line,
         neutral_site=neutral_site,
     )
 
@@ -660,12 +695,14 @@ def predict_win_probability_v2(
         return f"No SP+ data found for {home_team} or {away_team} in {season - 1}"
 
     X = pd.DataFrame([features])[feature_cols]
+    
+    # Raw lgbm prob
     raw_win_prob = round(float(model.predict_proba(X)[0][1]), 4)
 
+    # Full calibrated model (CalibratedClassifierCV) includes isotonic step
     if os.path.exists(scaler_path):
-        calibrated = joblib.load(scaler_path)
-        cal_fn     = calibrated.calibrated_classifiers_[0].calibrators[0]
-        win_prob   = round(float(cal_fn.predict(np.array([raw_win_prob]))[0]), 4)
+        calibrated_model = joblib.load(scaler_path)
+        win_prob = round(float(calibrated_model.predict_proba(X)[0][1]), 4)
     else:
         win_prob = raw_win_prob
 
@@ -676,7 +713,7 @@ def predict_win_probability_batch_v2(games: list, season: int) -> list:
     """Run v2 win probability prediction for multiple games in one vectorized call.
 
     Loads model artifacts and all reference tables once, builds the full feature
-    matrix, and runs a single predict_proba call with vectorized Platt calibration.
+    matrix, and runs a single predict_proba call with vectorized isotonic calibration.
 
     Args:
         games: List of dicts with keys home_team, away_team, and optional neutral_site.
@@ -701,9 +738,9 @@ def predict_win_probability_batch_v2(games: list, season: int) -> list:
         logger.error("v2 model artifacts not found — run models/train_win_probability.py first")
         return []
 
-    model        = joblib.load(model_path)
+    lgbm_model   = joblib.load(model_path)
     feature_cols = joblib.load(cols_path)
-    sp, rec, ret, coa, elo, talent, portal = _load_v2_tables()
+    sp, rec, ret, coa, elo, talent, portal, line = _load_v2_tables(season)
 
     feature_rows = []
     valid_games  = []
@@ -711,7 +748,7 @@ def predict_win_probability_batch_v2(games: list, season: int) -> list:
     for game in games:
         features = _build_features_v2(
             game["home_team"], game["away_team"], season,
-            sp, rec, ret, coa, elo, talent, portal,
+            sp, rec, ret, coa, elo, talent, portal, line,
             neutral_site=game.get("neutral_site", False),
         )
         if features is None:
@@ -727,12 +764,14 @@ def predict_win_probability_batch_v2(games: list, season: int) -> list:
         return []
 
     X = pd.DataFrame(feature_rows)[feature_cols]
-    raw_probs = model.predict_proba(X)[:, 1]
+    
+    # Raw lgbm probabilities
+    raw_probs = lgbm_model.predict_proba(X)[:, 1]
 
+    # Calibrated probabilities
     if os.path.exists(scaler_path):
-        calibrated = joblib.load(scaler_path)
-        cal_fn     = calibrated.calibrated_classifiers_[0].calibrators[0]
-        cal_probs  = cal_fn.predict(raw_probs)
+        calibrated_model = joblib.load(scaler_path)
+        cal_probs = calibrated_model.predict_proba(X)[:, 1]
     else:
         cal_probs = raw_probs
 
