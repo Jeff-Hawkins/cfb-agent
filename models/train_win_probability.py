@@ -11,7 +11,7 @@ Key improvements over v1 (23 features):
 
 Output artifacts (models/saved/):
   win_prob_model_v2.pkl     — raw LightGBM (23 → 15 features)
-  platt_scaler_v2.joblib    — CalibratedClassifierCV fitted on full training set
+  isotonic_calibrator_v2.joblib    — CalibratedClassifierCV fitted on full training set
   feature_cols_v2.pkl       — ordered list of 15 feature column names
 
 v1 artifacts are left untouched.
@@ -674,14 +674,14 @@ def train_v2():
     # ------------------------------------------------------------------ #
     os.makedirs(SAVED, exist_ok=True)
     joblib.dump(lgbm_model,      os.path.join(SAVED, "win_prob_model_v2.pkl"))
-    joblib.dump(calibrated_model, os.path.join(SAVED, "platt_scaler_v2.joblib"))
+    joblib.dump(calibrated_model, os.path.join(SAVED, "isotonic_calibrator_v2.joblib"))
     joblib.dump(FEATURE_COLS_V2, os.path.join(SAVED, "feature_cols_v2.pkl"))
 
     # Mirror artifacts to backend/models/saved/
     _backend_saved = os.path.join(os.path.dirname(__file__), "..", "backend", "models", "saved")
     os.makedirs(_backend_saved, exist_ok=True)
     import shutil
-    for fname in ("win_prob_model_v2.pkl", "platt_scaler_v2.joblib", "feature_cols_v2.pkl"):
+    for fname in ("win_prob_model_v2.pkl", "isotonic_calibrator_v2.joblib", "feature_cols_v2.pkl"):
         shutil.copy2(os.path.join(SAVED, fname), os.path.join(_backend_saved, fname))
 
     print("\nArtifacts saved.")

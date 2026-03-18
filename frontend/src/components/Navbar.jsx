@@ -38,6 +38,7 @@ export default function Navbar() {
           <NavLink to="/games" className={navLink}>Games</NavLink>
           <NavLink to="/rankings" className={navLink}>Power Rankings</NavLink>
           <NavLink to="/picks" className={navLink}>Picks</NavLink>
+          <NavLink to="/clv" className={navLink}>CLV</NavLink>
 
           {session ? (
             <>

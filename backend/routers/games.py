@@ -13,6 +13,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+P4_CONFERENCES = {'SEC', 'Big Ten', 'Big 12', 'ACC'}
+
+def get_conference_group(home_conf: str, away_conf: str,
+                         home_class: str, away_class: str) -> str | None:
+    """
+    Returns 'P4', 'G5', or None.
+    None means skip this game (not FBS).
+    If either team is P4 → 'P4'
+    If both are FBS but neither is P4 → 'G5'
+    If neither team is FBS → None (filter out)
+    """
+    is_fbs = home_class == 'fbs' or away_class == 'fbs'
+    if not is_fbs:
+        return None
+    if home_conf in P4_CONFERENCES or away_conf in P4_CONFERENCES:
+        return 'P4'
+    return 'G5'
+
 
 @router.get("")
 def get_games(week: int = Query(None, description="Filter by week number")):
@@ -71,7 +89,8 @@ def get_weekly_games(
       consensus_spread (home perspective, negative = home favored),
       model_edge (abs disagreement between consensus and home_implied),
       has_approved_pick (bool), pick_team (str or null),
-      home_score, away_score, status ('scheduled' | 'final').
+      home_score, away_score, status ('scheduled' | 'final'),
+      conference_group ('P4' | 'G5').
 
     Sorted by model_edge descending — highest disagreement first.
     No authentication required.
@@ -81,7 +100,8 @@ def get_weekly_games(
     # 1. Fetch FBS-only games (both home and away must be FBS)
     games_df = query_db(f"""
         SELECT id, "homeTeam", "awayTeam", "homePoints", "awayPoints",
-               "neutralSite", "completed"
+               "neutralSite", "completed", "homeConference", "awayConference",
+               "homeClassification", "awayClassification"
         FROM games
         WHERE season = {season} AND week = {week}
           AND "seasonType" = 'regular'
@@ -121,6 +141,10 @@ def get_weekly_games(
             "home_points":  row["homePoints"],
             "away_points":  row["awayPoints"],
             "neutral_site": bool(row["neutralSite"]) if row["neutralSite"] != "" else False,
+            "home_conf":    row["homeConference"],
+            "away_conf":    row["awayConference"],
+            "home_class":   row["homeClassification"],
+            "away_class":   row["awayClassification"],
         }
         for _, row in games_df.iterrows()
     ]
@@ -163,6 +187,12 @@ def get_weekly_games(
         away_score = int(float(away_pts)) if away_pts != "" else None
         status = "final" if (home_score is not None and away_score is not None) else "scheduled"
 
+        # Conference group (P4/G5)
+        conf_group = get_conference_group(
+            pred["home_conf"], pred["away_conf"],
+            pred["home_class"], pred["away_class"]
+        )
+
         results.append({
             "game_id":             game_id,
             "season":              season,
@@ -180,6 +210,7 @@ def get_weekly_games(
             "home_score":          home_score,
             "away_score":          away_score,
             "status":              status,
+            "conference_group":    conf_group,
         })
 
     # Sort by model_edge descending; games without a line sort last

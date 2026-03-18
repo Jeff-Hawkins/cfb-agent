@@ -378,20 +378,47 @@ def approve_pick(
     pick_id: str,
     _: None = Depends(_require_admin),
 ):
-    """Approve a pick by UUID, recording the approval timestamp.
+    """Approve a pick by UUID, recording the approval timestamp and pick_spread.
 
     Explanations are generated at flag time via _run_explanation_bg(), so
     no additional generation is triggered here.
     """
+    # 1. Fetch pick details to calculate pick_spread
+    pick = query_db(f"SELECT game_id, pick_team, home_team FROM picks WHERE id = '{pick_id}'")
+    if pick.empty:
+        raise HTTPException(status_code=404, detail="Pick not found")
+    
+    p = pick.iloc[0]
+    game_id = p['game_id']
+    pick_team = p['pick_team']
+    home_team = p['home_team']
+    
+    # 2. Look up current consensus spread
+    line = query_db(f"SELECT spread FROM betting_lines WHERE game_id = '{game_id}'")
+    pick_spread = None
+    if not line.empty:
+        spread = float(line.iloc[0]['spread'])
+        # If pick_team == home_team: pick_spread = spread
+        # If pick_team == away_team: pick_spread = -1 * spread
+        if pick_team == home_team:
+            pick_spread = spread
+        else:
+            pick_spread = -1.0 * spread
+
+    # 3. Update pick with approved=True and pick_spread
     with engine.begin() as conn:
         result = conn.execute(
-            text("UPDATE picks SET approved = true, approval_timestamp = NOW() WHERE id = :id"),
-            {"id": pick_id},
+            text("""
+                UPDATE picks 
+                SET approved = true, 
+                    approval_timestamp = NOW(),
+                    pick_spread = :pick_spread
+                WHERE id = :id
+            """),
+            {"id": pick_id, "pick_spread": pick_spread},
         )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Pick not found")
-
-    return {"approved": True, "pick_id": pick_id}
+    
+    return {"approved": True, "pick_id": pick_id, "pick_spread": pick_spread}
 
 
 @router.post("/{pick_id}/reject")

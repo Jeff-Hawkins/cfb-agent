@@ -173,19 +173,31 @@ class TestFlagPicks(unittest.TestCase):
 
 
 class TestApproveReject(unittest.TestCase):
+    @patch("routers.picks.query_db")
     @patch("routers.picks.engine")
-    def test_approve_sets_timestamp(self, mock_engine):
-        """Approve should UPDATE approved=true and approval_timestamp=NOW()."""
+    def test_approve_sets_timestamp(self, mock_engine, mock_qdb):
+        """Approve should UPDATE approved=true and approval_timestamp=NOW() and set pick_spread."""
+        # Mock the two SELECT calls in approve_pick
+        mock_pick_df = pd.DataFrame([{"game_id": "1001", "pick_team": "Alabama", "home_team": "Alabama"}])
+        mock_line_df = pd.DataFrame([{"spread": -7.0}])
+        mock_qdb.side_effect = [mock_pick_df, mock_line_df]
+
         conn = _make_conn()
         _patch_engine(mock_engine, conn)
 
         from routers.picks import approve_pick
-        result = approve_pick("some-uuid", _=None)
+        pick_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        result = approve_pick(pick_uuid, _=None)
 
         assert result["approved"] is True
+        assert result["pick_spread"] == -7.0
+        
         sql = str(conn.execute.call_args[0][0])
+        params = conn.execute.call_args[0][1]
         assert "approved" in sql.lower()
-        assert "approval_timestamp" in sql.lower()
+        assert "pick_spread" in sql.lower()
+        assert params["id"] == pick_uuid
+        assert params["pick_spread"] == -7.0
 
     @patch("routers.picks.engine")
     def test_reject_sets_flag(self, mock_engine):
@@ -194,11 +206,15 @@ class TestApproveReject(unittest.TestCase):
         _patch_engine(mock_engine, conn)
 
         from routers.picks import reject_pick
-        result = reject_pick("some-uuid", _=None)
+        # Using a valid-ish UUID just in case
+        pick_uuid = "550e8400-e29b-41d4-a716-446655440001"
+        result = reject_pick(pick_uuid, _=None)
 
         assert result["rejected"] is True
         sql = str(conn.execute.call_args[0][0])
         assert "rejected" in sql.lower()
+        params = conn.execute.call_args[0][1]
+        assert params["id"] == pick_uuid
 
 
 class TestUpdateOutcomes(unittest.TestCase):

@@ -78,7 +78,7 @@ def _v2_artifacts_present():
     return (
         os.path.exists(os.path.join(SAVED, "win_prob_model_v2.pkl"))
         and os.path.exists(os.path.join(SAVED, "feature_cols_v2.pkl"))
-        and os.path.exists(os.path.join(SAVED, "platt_scaler_v2.joblib"))
+        and os.path.exists(os.path.join(SAVED, "isotonic_calibrator_v2.joblib"))
     )
 
 
@@ -274,7 +274,7 @@ class TestV2BrierVsV1(unittest.TestCase):
         y_test = holdout_df["home_win"].values
 
         v2_model  = joblib.load(os.path.join(SAVED, "win_prob_model_v2.pkl"))
-        v2_scaler = joblib.load(os.path.join(SAVED, "platt_scaler_v2.joblib"))
+        v2_scaler = joblib.load(os.path.join(SAVED, "isotonic_calibrator_v2.joblib"))
         raw_v2    = v2_model.predict_proba(X_test)[:, 1]
         cal_v2    = v2_scaler.calibrated_classifiers_[0].calibrators[0].predict(raw_v2)
         v2_brier  = brier_score_loss(y_test, cal_v2)

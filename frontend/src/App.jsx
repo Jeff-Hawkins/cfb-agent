@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import PendingPicksPage from './pages/admin/PendingPicksPage'
 import PickHistoryPage from './pages/admin/PickHistoryPage'
 import PublicPicksPage from './pages/PublicPicksPage'
+import CLVDashboard from './pages/CLVDashboard'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/games"  element={<GamesPage />} />
             <Route path="/rankings" element={<RankingsPage />} />
             <Route path="/picks"    element={<PublicPicksPage />} />
+            <Route path="/clv"      element={<CLVDashboard />} />
             <Route path="/login"  element={<LoginPage />} />
             <Route
               path="/admin"
