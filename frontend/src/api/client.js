@@ -115,7 +115,24 @@ export async function getPublicPicks(season, week = null) {
   const url = week != null
     ? `${BASE}/picks/public?season=${season}&week=${week}`
     : `${BASE}/picks/public?season=${season}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
+/**
+ * Generic API helper for simple GET/POST requests.
+ */
+const api = {
+  async get(path) {
+    const res = await fetch(`${BASE}${path}`)
+    if (!res.ok) throw new Error(`${res.status}`)
+    return res.json()
+  },
+  async post(path, body) {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(body)
+    })
+    if (!res.ok) throw new Error(`${res.status}`)
+    return res.json()
+  }
 }
+
+export default api
