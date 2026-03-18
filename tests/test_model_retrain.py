@@ -23,19 +23,36 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 SAVED = os.path.join(os.path.dirname(__file__), "..", "models", "saved")
 
 V2_EXPECTED_FEATURES = [
+    # SP+ (4)
     "sp_overall_diff",
     "sp_off_vs_def",
     "sp_def_vs_off",
     "sp_special_diff",
+    
+    # Recruiting & Talent (2)
     "rec_3yr_diff",
     "talent_diff",
+    
+    # Returning Production (2)
     "ret_ppa_diff",
     "ret_pct_diff",
+    
+    # Portal (1)
     "portal_net_diff",
+    
+    # Coaching (3)
     "coach_win_pct_diff",
     "home_new_coach",
     "away_new_coach",
+    
+    # Strength (1)
     "elo_diff",
+    
+    # Line Play (2)
+    "offense_lineYards_diff",
+    "defense_stuffRate_diff",
+    
+    # Game Context (2)
     "neutral_site",
     "home_field",
 ]
@@ -73,9 +90,9 @@ class TestV2Features(unittest.TestCase):
         import joblib
         self.feature_cols = joblib.load(os.path.join(SAVED, "feature_cols_v2.pkl"))
 
-    def test_all_15_features_present(self):
-        """feature_cols_v2.pkl must contain exactly the 15 v2 features."""
-        self.assertEqual(len(self.feature_cols), 15)
+    def test_all_17_features_present(self):
+        """feature_cols_v2.pkl must contain exactly the 17 v2 features."""
+        self.assertEqual(len(self.feature_cols), 17)
         for feat in V2_EXPECTED_FEATURES:
             self.assertIn(feat, self.feature_cols, msg=f"Missing feature: {feat}")
 
@@ -84,9 +101,9 @@ class TestV2Features(unittest.TestCase):
         for feat in V1_REMOVED_FEATURES:
             self.assertNotIn(feat, self.feature_cols, msg=f"Removed feature still present: {feat}")
 
-    def test_feature_count_is_15(self):
-        """Exactly 15 features — not 14, not 16."""
-        self.assertEqual(len(self.feature_cols), 15)
+    def test_feature_count_is_17(self):
+        """Exactly 17 features."""
+        self.assertEqual(len(self.feature_cols), 17)
 
 
 # ---------------------------------------------------------------------------

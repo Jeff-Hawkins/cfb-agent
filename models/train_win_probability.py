@@ -41,8 +41,6 @@ SAVED = os.path.join(os.path.dirname(__file__), "saved")
 RECENCY_WEIGHTS = {2021: 0.4, 2022: 0.6, 2023: 0.8, 2024: 1.0}
 
 # Clip bounds for outlier-prone features.
-# Raw diffs from 2021–2024 data had tails far beyond what calibration data
-# supports, pushing predicted probabilities to 97–99%.
 FEATURE_CLIPS = {
     "sp_overall_diff": (-25.0,  25.0),
     "elo_diff":        (-600.0, 600.0),
@@ -53,19 +51,36 @@ FEATURE_CLIPS = {
 # Canonical feature order for v2. Any change here must be reflected in the
 # saved feature_cols_v2.pkl artifact and in win_probability.py v2 functions.
 FEATURE_COLS_V2 = [
-    "sp_overall_diff",
+    # SP+ (4)
+    "sp_overall_diff",    # clipped ±25
     "sp_off_vs_def",
     "sp_def_vs_off",
     "sp_special_diff",
-    "rec_3yr_diff",
-    "talent_diff",
+    
+    # Recruiting & Talent (2)
+    "rec_3yr_diff",       # clipped ±150
+    "talent_diff",        # clipped ±400
+    
+    # Returning Production (2)
     "ret_ppa_diff",
     "ret_pct_diff",
+    
+    # Portal (1)
     "portal_net_diff",
+    
+    # Coaching (3)
     "coach_win_pct_diff",
     "home_new_coach",
     "away_new_coach",
-    "elo_diff",
+    
+    # Strength (1)
+    "elo_diff",           # clipped ±600
+    
+    # Line Play (2) — NEW
+    "offense_lineYards_diff",
+    "defense_stuffRate_diff",
+    
+    # Game Context (2)
     "neutral_site",
     "home_field",
 ]
@@ -153,6 +168,17 @@ def _load_portal():
     )
 
 
+def _load_line_play(season):
+    """Load line play metrics from advanced_stats for season-1."""
+    return query_db(f"""
+        SELECT team, season,
+               "offense_lineYards" as "offense_lineYards",
+               "defense_stuffRate" as "defense_stuffRate"
+        FROM advanced_stats
+        WHERE season = {season}
+    """)
+
+
 # ---------------------------------------------------------------------------
 # Scalar lookup helper
 # ---------------------------------------------------------------------------
@@ -201,10 +227,10 @@ def _sp_vals(sp, team, year):
 
 def _build_features_v2(
     home_team, away_team, season,
-    sp, rec, ret, coa, elo, talent, portal,
+    sp, rec, ret, coa, elo, talent, portal, line,
     neutral_site=False,
 ):
-    """Build the 15 v2 features for a single game.
+    """Build the 17 v2 features for a single game.
 
     All reference tables are looked up at year = season - 1. This ensures
     only preseason / prior-season information is used, which is also the
@@ -217,7 +243,7 @@ def _build_features_v2(
         home_team: Home team name (as it appears in the DB).
         away_team: Away team name.
         season: Game season year (e.g. 2024). Lookups use season-1.
-        sp, rec, ret, coa, elo, talent, portal: Pre-loaded reference DataFrames.
+        sp, rec, ret, coa, elo, talent, portal, line: Pre-loaded reference DataFrames.
         neutral_site: True for neutral-site games.
 
     Returns:
@@ -277,6 +303,29 @@ def _build_features_v2(
     a_elo = _scalar(elo, "team", "year", "elo", away_team, ly, default=0.0)
     f["elo_diff"] = h_elo - a_elo
 
+    # Line Play features (using neutral defaults from training data)
+    h_ly = _scalar(line, "team", "season", "offense_lineYards", home_team, ly, default=None)
+    a_ly = _scalar(line, "team", "season", "offense_lineYards", away_team, ly, default=None)
+    if h_ly is not None and a_ly is not None:
+        f["offense_lineYards_diff"] = h_ly - a_ly
+    elif h_ly is not None:
+        f["offense_lineYards_diff"] = h_ly - 3.04
+    elif a_ly is not None:
+        f["offense_lineYards_diff"] = 3.04 - a_ly
+    else:
+        f["offense_lineYards_diff"] = 0.009
+
+    h_sr = _scalar(line, "team", "season", "defense_stuffRate", home_team, ly, default=None)
+    a_sr = _scalar(line, "team", "season", "defense_stuffRate", away_team, ly, default=None)
+    if h_sr is not None and a_sr is not None:
+        f["defense_stuffRate_diff"] = h_sr - a_sr
+    elif h_sr is not None:
+        f["defense_stuffRate_diff"] = h_sr - 0.179
+    elif a_sr is not None:
+        f["defense_stuffRate_diff"] = 0.179 - a_sr
+    else:
+        f["defense_stuffRate_diff"] = 0.0016
+
     # Home field
     f["neutral_site"] = 1 if neutral_site else 0
     f["home_field"]   = 0 if neutral_site else 1
@@ -310,7 +359,7 @@ def _load_all_tables():
 
 
 def build_training_data_v2():
-    """Load FBS games 2021-2024 and build the 15-feature v2 training set.
+    """Load FBS games 2021-2024 and build the 17-feature v2 training set.
 
     Only games that appear in betting_lines are included (FBS-only signal).
     Rows where more than 3 features are null are dropped.
@@ -334,16 +383,22 @@ def build_training_data_v2():
     """)
 
     sp, rec, ret, coa, elo, talent, portal = _load_all_tables()
+    
+    line_cache = {}
 
     records, sample_weights = [], []
 
     for _, game in games.iterrows():
         season  = int(game["season"])
         neutral = bool(game["neutralSite"])
+        
+        if season not in line_cache:
+            line_cache[season] = _load_line_play(season - 1)
 
         features = _build_features_v2(
             game["homeTeam"], game["awayTeam"], season,
-            sp, rec, ret, coa, elo, talent, portal, neutral,
+            sp, rec, ret, coa, elo, talent, portal, line_cache[season],
+            neutral_site=neutral,
         )
         if features is None:
             continue
@@ -389,15 +444,21 @@ def build_holdout_v2():
         return pd.DataFrame(), np.array([])
 
     sp, rec, ret, coa, elo, talent, portal = _load_all_tables()
+    
+    line_cache = {}
 
     records = []
     for _, game in games.iterrows():
         season  = int(game["season"])
         neutral = bool(game["neutralSite"])
+        
+        if season not in line_cache:
+            line_cache[season] = _load_line_play(season - 1)
 
         features = _build_features_v2(
             game["homeTeam"], game["awayTeam"], season,
-            sp, rec, ret, coa, elo, talent, portal, neutral,
+            sp, rec, ret, coa, elo, talent, portal, line_cache[season],
+            neutral_site=neutral,
         )
         if features is None:
             continue
@@ -490,22 +551,16 @@ def train_v2():
     """Train the v2 model, evaluate, print report, and save artifacts.
 
     Training split:
-      - LightGBM: 2021–2023 games with recency weights (avoids leakage into cal set)
-      - Platt scaler: 2024 games (out-of-sample for the fitted LightGBM)
-      - Holdout: 2025 completed games
-
-    Fitting the Platt scaler on the same data used to train LightGBM causes
-    severe miscalibration because LightGBM's training-set probabilities are far
-    more extreme than its test-set probabilities (the model has partially
-    memorised the training data). Using 2024 as a held-out calibration set
-    gives the sigmoid a realistic raw-prob distribution to fit against.
+      - LightGBM: 2021–2024 games with recency weights.
+      - Calibration: Isotonic regression with 5-fold CV on full 2021-2024 training set.
+      - Holdout: 2025 completed games.
 
     Returns:
         Tuple of (raw_model, calibrated_model, feature_cols).
     """
     sep = "=" * 55
     print(sep)
-    print("=== MODEL RETRAIN REPORT ===")
+    print("=== V2 RETRAIN REPORT ===")
     print(sep)
 
     # ------------------------------------------------------------------ #
@@ -513,27 +568,19 @@ def train_v2():
     # ------------------------------------------------------------------ #
     print("\nBuilding training data (2021-2024)...")
     train_df, weights = build_training_data_v2()
-    print(f"Total games (2021-2024): {len(train_df)}")
+    
+    X_train = train_df[FEATURE_COLS_V2].fillna(0)
+    y_train = train_df["home_win"]
+    w_train = weights
 
-    # LightGBM trains on 2021-2023; 2024 is held out for Platt calibration
-    lgbm_mask = train_df["season"].isin([2021, 2022, 2023])
-    cal_mask  = train_df["season"] == 2024
-
-    X_lgbm = train_df.loc[lgbm_mask, FEATURE_COLS_V2].fillna(0)
-    y_lgbm = train_df.loc[lgbm_mask, "home_win"]
-    w_lgbm = weights[lgbm_mask.values]
-
-    X_cal  = train_df.loc[cal_mask, FEATURE_COLS_V2].fillna(0)
-    y_cal  = train_df.loc[cal_mask, "home_win"]
-
-    print(f"  LightGBM training games (2021-2023): {len(X_lgbm)}")
-    print(f"  Platt calibration games (2024):      {len(X_cal)}")
+    print(f"Total training games (2021-2024): {len(train_df)}")
+    print(f"Features: {len(FEATURE_COLS_V2)}")
 
     # ------------------------------------------------------------------ #
-    # 2. Train LightGBM on 2021-2023
+    # 2. Train LightGBM & Isotonic Calibration
     # ------------------------------------------------------------------ #
-    print("Training LightGBM v2 (15 features)...")
-    model = lgb.LGBMClassifier(
+    print("Training raw LightGBM...")
+    lgbm_model = lgb.LGBMClassifier(
         n_estimators=500,
         learning_rate=0.05,
         num_leaves=31,
@@ -544,18 +591,18 @@ def train_v2():
         random_state=42,
         verbose=-1,
     )
-    model.fit(X_lgbm, y_lgbm, sample_weight=w_lgbm)
+    lgbm_model.fit(X_train, y_train, sample_weight=w_train)
+
+    print("Fitting Isotonic calibration (5-fold CV)...")
+    calibrated_model = CalibratedClassifierCV(
+        lgbm_model,
+        method='isotonic',
+        cv=5
+    )
+    calibrated_model.fit(X_train, y_train, sample_weight=w_train)
 
     # ------------------------------------------------------------------ #
-    # 3. Platt calibration on 2024 (out-of-sample for the LightGBM)
-    # ------------------------------------------------------------------ #
-    print("Fitting Platt scaler on 2024 held-out games...")
-    calibrated = CalibratedClassifierCV(model, method="sigmoid", cv="prefit")
-    calibrated.fit(X_cal, y_cal)
-    calibrator = calibrated.calibrated_classifiers_[0].calibrators[0]
-
-    # ------------------------------------------------------------------ #
-    # 4. Holdout evaluation
+    # 3. Holdout evaluation
     # ------------------------------------------------------------------ #
     print("Building 2025 holdout...")
     holdout_df, _ = build_holdout_v2()
@@ -569,87 +616,76 @@ def train_v2():
         y_test = holdout_df["home_win"].values
         n_test = len(X_test)
 
-        raw_probs_v2 = model.predict_proba(X_test)[:, 1]
-        cal_probs_v2 = calibrator.predict(raw_probs_v2)
+        # Calibrated output
+        cal_probs_v2 = calibrated_model.predict_proba(X_test)[:, 1]
 
         v2_acc   = accuracy_score(y_test, (cal_probs_v2 >= 0.5).astype(int))
         v2_brier = brier_score_loss(y_test, cal_probs_v2)
 
     # ------------------------------------------------------------------ #
-    # 5. v1 comparison on the same holdout games
+    # 4. v1 comparison on the same holdout games
     # ------------------------------------------------------------------ #
     v1_acc, v1_brier, n_v1 = _evaluate_v1_on_holdout(holdout_df) if not holdout_df.empty else (None, None, 0)
 
     # ------------------------------------------------------------------ #
-    # 6. Print report
+    # 5. Print report
     # ------------------------------------------------------------------ #
-    print(f"\nFeatures: {len(FEATURE_COLS_V2)}")
-    print(f"Test games (2025): {n_test}")
-    print()
+    print("\n--- ACCURACY ---")
+    if v1_acc is not None:
+        print(f"V1 (23 features, Platt):     {v1_acc:.2%}")
+    print(f"V2 (17 features, isotonic):  {v2_acc:.2%}")
 
+    print("\n--- BRIER SCORE ---")
     if v1_brier is not None:
-        v1_feat_count = len(joblib.load(os.path.join(SAVED, "feature_cols.pkl")))
-        print(f"Old model (v1, {v1_feat_count} features, n={n_v1}):")
-        print(f"  Accuracy:    {v1_acc:.2%}")
-        print(f"  Brier score: {v1_brier:.4f}")
-        print()
+        print(f"V1: {v1_brier:.4f}")
+    print(f"V2: {v2_brier:.4f}")
 
     if v2_brier is not None:
-        print(f"New model (v2, {len(FEATURE_COLS_V2)} features, n={n_test}):")
-        print(f"  Accuracy:    {v2_acc:.2%}")
-        print(f"  Brier score: {v2_brier:.4f}")
-
-        # Calibration table
-        print("\nCalibration comparison (2025 holdout, new model):")
-        edges = np.linspace(0.0, 1.0, 11)
-        print(f"  {'Bucket':>7}  {'Predicted':>9}  {'Actual%':>9}  {'Count':>5}")
-        print(f"  {'-'*7}  {'-'*9}  {'-'*9}  {'-'*5}")
+        print("\n--- CALIBRATION (2025 holdout) ---")
+        edges = [0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0]
+        print(f"  {'bucket':>7}  {'v2_pred':>9}  {'v2_actual':>9}  {'count':>5}")
         for lo, hi in zip(edges[:-1], edges[1:]):
             mask = (cal_probs_v2 >= lo) & (cal_probs_v2 < hi)
             n_bin = int(mask.sum())
-            if n_bin == 0:
-                continue
+            if n_bin == 0: continue
             pred   = float(cal_probs_v2[mask].mean())
             actual = float(y_test[mask].mean())
             print(f"  {lo:.1f}–{hi:.1f}  {pred:>9.3f}  {actual:>8.1%}  {n_bin:>5}")
 
-        # High-confidence check
-        print("\nGames above 90% predicted win probability:")
+        print("\n--- EXTREME PREDICTIONS ---")
         high_v2 = cal_probs_v2 >= 0.90
         n_high  = int(high_v2.sum())
-        wr_high = float(y_test[high_v2].mean()) if n_high > 0 else float("nan")
-        print(f"  New model: {n_high} games, {wr_high:.1%} actual win rate")
-        if v1_brier is not None:
-            # Load v1 calibrated probs array (already computed inside _evaluate_v1_on_holdout)
-            # Just report for informational purposes — full v1 array not re-used here
-            print(f"  (v1 high-confidence breakdown not re-computed — see Brier comparison above)")
+        wr_high = float(y_test[high_v2].mean()) if n_high > 0 else 0.0
+        print(f"V2 games above 90%: {n_high} ({wr_high:.1%} actual win rate)")
+        
+        low_v2 = cal_probs_v2 <= 0.10
+        n_low  = int(low_v2.sum())
+        wr_low = float(y_test[low_v2].mean()) if n_low > 0 else 0.0
+        print(f"V2 games below 10%: {n_low} ({wr_low:.1%} actual win rate)")
+
+    print("\n--- FEATURE IMPORTANCE (top 10) ---")
+    importances = lgbm_model.feature_importances_
+    feat_imp = sorted(zip(FEATURE_COLS_V2, importances), key=lambda x: x[1], reverse=True)
+    for f_name, imp in feat_imp[:10]:
+        print(f"{f_name:<25}: {imp}")
 
     # ------------------------------------------------------------------ #
-    # 7. Save artifacts
+    # 6. Save artifacts
     # ------------------------------------------------------------------ #
     os.makedirs(SAVED, exist_ok=True)
-    joblib.dump(model,           os.path.join(SAVED, "win_prob_model_v2.pkl"))
-    joblib.dump(calibrated,      os.path.join(SAVED, "platt_scaler_v2.joblib"))
+    joblib.dump(lgbm_model,      os.path.join(SAVED, "win_prob_model_v2.pkl"))
+    joblib.dump(calibrated_model, os.path.join(SAVED, "platt_scaler_v2.joblib"))
     joblib.dump(FEATURE_COLS_V2, os.path.join(SAVED, "feature_cols_v2.pkl"))
 
-    # Mirror artifacts to backend/models/saved/ so the Railway-deployed copy and
-    # the backend sys.path resolver both find them (CLAUDE.md: backend is self-contained).
-    _backend_saved = os.path.join(
-        os.path.dirname(__file__), "..", "backend", "models", "saved"
-    )
+    # Mirror artifacts to backend/models/saved/
+    _backend_saved = os.path.join(os.path.dirname(__file__), "..", "backend", "models", "saved")
     os.makedirs(_backend_saved, exist_ok=True)
     import shutil
     for fname in ("win_prob_model_v2.pkl", "platt_scaler_v2.joblib", "feature_cols_v2.pkl"):
         shutil.copy2(os.path.join(SAVED, fname), os.path.join(_backend_saved, fname))
 
-    print("\nArtifacts saved:")
-    print("  models/saved/win_prob_model_v2.pkl")
-    print("  models/saved/platt_scaler_v2.joblib")
-    print("  models/saved/feature_cols_v2.pkl")
-    print("  (mirrored to backend/models/saved/)")
-    print("(v1 artifacts untouched)")
-
-    return model, calibrated, FEATURE_COLS_V2
+    print("\nArtifacts saved.")
+    return lgbm_model, calibrated_model, FEATURE_COLS_V2
 
 
 if __name__ == "__main__":
