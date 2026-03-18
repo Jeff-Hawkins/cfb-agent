@@ -8,7 +8,7 @@
 ## Project Overview
 
 **Name:** CFB Agent
-**Purpose:** College football betting prediction agent — end-to-end AI/data engineering portfolio project and planned subscription product targeting CFB bettors.
+**Purpose:** End-to-end AI sports analytics portfolio piece targeting AI/data roles (Anthropic, Spotify). Demonstrates predictive modeling, LLM orchestration, real-time data pipelines, and full-stack production deployment. No subscriptions or monetization in current plan — CLV dashboard and public track record are portfolio credibility metrics.
 **Target users:** CFB bettors who want model-backed win probability, line value flags, and verified pick tracking (CLV as primary credibility metric).
 **Repo:** `github.com/Jeff-Hawkins/cfb-agent`
 **Local path:** `~/cfb-agent`
@@ -261,15 +261,13 @@ Phase 6 complete. All deliverables live in production:
 
 ## Upcoming Phases
 
-| Phase | Description | Target |
+| Phase | Description | Status |
 |---|---|---|
-| 6 | Bayesian in-season updating + model recalibration | v1 |
-| 7 | Line value engine + spread_diff reintroduction + weather + power ratings pipeline (SP+ via CFBD, Sagarin scraper, Massey scraper → `power_ratings_comparison` table, z-score normalized, Sunday cron, dashboard widget) | v1 |
-| 8 | Groq → Claude Sonnet swap + Prompt Eval Agent (intentional Anthropic API portfolio signal) | v1 |
-| 9 | CLV dashboard + subscriber tracker (soft launch, $25/month) | v1 launch |
-| 10 | LangGraph multi-agent orchestration crew | v2 |
-| 11 | Bayesian capstone — full in-season updating at scale | v2 |
-| Launch | August 2026 | 🎯 |
+| 7 | Line value engine + weather integration + power ratings pipeline (SP+ via CFBD, Sagarin scraper, Massey scraper → `power_ratings_comparison` table, z-score normalized, Sunday cron, full model comparison on Games page) | 🔜 Next |
+| 8 | CLV dashboard + public track record (Betstamp/Pikkit third-party verification) | 🔜 |
+| Launch | August 2026 — portfolio piece complete | 🎯 |
+| 10 | LangGraph multi-agent + NFL agent v1 (post-launch) | Future |
+| 12 | CBB agent + March Madness (2027) | Future |
 
 ---
 
@@ -310,12 +308,12 @@ Phase 6 complete. All deliverables live in production:
 | Games page (model vs Vegas comparison) | ✅ Built in Phase 6 — SP+/Sagarin/Massey columns deferred to Phase 7 |
 | Spread display bug fix (too many decimals) | ✅ Fixed in Phase 5 post-patch |
 | Delete/undo on history page | 7 |
-| Groq → Claude Sonnet swap + Prompt Eval Agent | 8 |
-| CLV dashboard | 9 |
-| Subscriber tracker | 9 |
-| SendGrid custom domain + sender authentication (emails landing in junk) | 9 |
-| LangGraph multi-agent architecture | 10 |
-| Bayesian capstone | 11 |
+| Groq → Claude Sonnet swap | Deferred indefinitely — LLM stays on Groq (free tier) |
+| CLV dashboard | 8 |
+| Betstamp/Pikkit track record verification | 8 |
+| LangGraph multi-agent + NFL agent | Phase 10 (post-launch) |
+| CBB agent | Phase 12 (2027) |
+| Subscriptions + monetization | Not in current plan — portfolio piece only |
 | 2026 schedule (swap from 2025 demo) | When CFB API publishes it |
 
 ---
@@ -371,4 +369,4 @@ VITE_ADMIN_API_KEY=
 
 ---
 
-*Last updated: Phase 6 complete. Corrected flag logic, public picks page, Games page, Bayesian updater, batch prediction, 88 tests passing. Next: Phase 7 — Line value engine + weather + power ratings pipeline.*
+*Last updated: Phase 6 complete. Portfolio-focused roadmap: 2 phases remaining (7: power ratings pipeline, 8: CLV dashboard). No monetization, no subscriptions, LLM stays on Groq. Target: August 2026.*
