@@ -1,160 +1,106 @@
-# CFB Betting Agent 🏈
+# CFB Agent — AI-Powered College Football Betting Analytics
 
-An AI-powered college football analysis tool that predicts game win probabilities and surfaces betting line inefficiencies using historical stats, machine learning, and a conversational LLM interface.
-
------
+End-to-end AI sports analytics system. Predictive modeling, natural language explanations, real-time data pipelines, and a live production deployment. Built solo.
 
 ## What It Does
 
-- **Win Probability Modeling** — Logistic regression model trained on 5 seasons (2021–2025) of FBS game data. Predicts win probability based on team offensive/defensive efficiency and home field advantage.
-- **Betting Line Analysis** — Compares model-generated probabilities against historical betting lines to identify where the market may be mispriced.
-- **Conversational Agent** — LangGraph-style orchestrator powered by an LLM (Groq / llama-3.3-70b) that lets you ask natural language questions like *“Who has the edge in a neutral-site game between Alabama and Georgia?”*
-- **Streamlit UI** — Clean front-end for exploring predictions without touching the code.
+CFB Agent predicts college football game outcomes using a LightGBM win probability model, identifies games where the model disagrees with the Vegas consensus line, and generates plain-English AI explanations for every pick.
 
------
+Every pick is tracked publicly. No deleted losses.
+
+## Live Product
+
+- **Public picks:** [cfb-agent.vercel.app/picks](https://cfb-agent.vercel.app/picks) — model value picks with AI analysis
+- **Games:** [cfb-agent.vercel.app/games](https://cfb-agent.vercel.app/games) — this week's FBS games, model vs Vegas
 
 ## Tech Stack
 
-|Layer      |Tools                                                        |
-|-----------|-------------------------------------------------------------|
-|Language   |Python 3.11                                                  |
-|Database   |SQLite (via SQLAlchemy)                                      |
-|ML Model   |scikit-learn (Logistic Regression)                           |
-|LLM / Agent|Groq API, LangGraph-style orchestrator                       |
-|UI         |Streamlit                                                    |
-|Data Source|[College Football Data API](https://collegefootballdata.com/)|
-
------
-
-## Project Structure
-
-```
-cfb-agent/
-├── data/
-│   └── cfb.db                  # SQLite database (auto-built on run)
-├── db/
-│   └── database.py             # DB init, schema, query helpers
-├── tools/
-│   └── stats_fetcher.py        # CFBD API calls and data loading
-├── models/
-│   ├── win_probability.py      # Logistic regression training + inference
-│   └── saved/                  # Serialized model artifacts (joblib)
-├── agent/
-│   └── orchestrator.py         # LangGraph-style agent logic
-├── app.py                      # Streamlit UI entry point
-├── main.py                     # CLI entry point, rebuilds DB
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
-
------
-
-## Database
-
-Built from the College Football Data API. Clears and rebuilds on each `main.py` run.
-
-|Table          |Rows   |Description                                      |
-|---------------|-------|-------------------------------------------------|
-|`games`        |13,407+|Game results, scores, home/away teams (2021–2025)|
-|`team_stats`   |33,261+|Per-game offensive and defensive stats           |
-|`betting_lines`|5,339+ |Historical spread and over/under lines           |
-
-
-> 2020 excluded due to COVID-disrupted schedule introducing noise. Row counts reflect pre-2025 data; 2025 season adds to these totals.
-
------
+| Layer | Technology |
+|---|---|
+| ML Model | LightGBM (78.22% holdout accuracy, Brier 0.1569) |
+| Calibration | Platt scaling (CalibratedClassifierCV) |
+| AI Explanations | Groq llama-3.3-70b-versatile |
+| Backend | FastAPI — Railway |
+| Frontend | React + Vite + Tailwind + shadcn/ui — Vercel |
+| Database | Supabase (PostgreSQL) |
+| Data | College Football Data API |
+| Email | SendGrid |
+| CI/CD | GitHub Actions |
 
 ## Model
 
-**Phase 2 — LightGBM win probability model**
+LightGBM win probability model trained on 2021-2024 FBS games. 21 features including SP+ differentials, recruiting ratings, returning production, transfer portal net ratings, ELO, talent composite, and coaching signals.
 
-| Metric | Value |
-|---|---|
-| Algorithm | LightGBM (GBDT) |
-| Holdout accuracy (2025) | 78.22% (762 games) |
-| Brier score (2025) | 0.1569 |
-| Training set | 2021–2024, recency-weighted (2021=0.2 → 2024=0.8) |
+Holdout accuracy: **78.22%** on 2025 games. Brier score: **0.1569**.
 
-**Features:**
+Calibrated with Platt scaling. Raw and calibrated probabilities both surfaced in the API.
 
-- SP+ rating differential
-- 3-year recruiting average differential
-- Returning production (PPA) differential
-- Portal net rating differential
-- Coach effectiveness score differential
-- Elo rating differential
-- Talent composite differential
-- Home field / neutral site indicator
-- Points per game, passing yards, rushing yards, turnovers, fumbles lost
+## Pick Selection
 
-**Calibration:** Well-calibrated in the 0.3–0.7 predicted probability range. Slight overconfidence at extremes (>0.9 predicted probability maps to ~90.6% actual win rate).
+Picks are flagged when:
+- Model win probability >= 65%
+- Consensus spread within 17 points (no blowouts)
+- Model vs Vegas disagreement >= 5 points
 
-**Known limitations:**
+The spread differential uses the corrected home/away formula:
+- Home pick: `model_implied = -1 * (win_prob - 0.5) * 28`
+- Away pick: `model_implied = (win_prob - 0.5) * 28`
 
-- No injury, depth chart, or momentum data
-- Overconfident at probability extremes — Platt scaling deferred to Phase 6 (Bayesian updating)
-- `spread_diff` removed due to feature leakage; will be re-introduced in Phase 7 (line value engine) using actual opening/closing lines
-- No AP Poll / rankings integration
+## AI Explanation Engine
 
------
+Every flagged pick gets a plain-English breakdown generated by Groq. The explanation references the top model features — SP+ edge, returning production, portal net rating, ELO differential — framed for a recreational bettor, not a data scientist.
 
-## Getting Started
+Feature descriptions are stored in a static map and referenced in the Groq prompt so narratives stay jargon-free.
 
-**1. Clone the repo**
+## Architecture
 
-```bash
-git clone https://github.com/yourusername/cfb-agent.git
-cd cfb-agent
+```
+CFBD API -> Data Pipeline -> Supabase
+                               |
+                     LightGBM + Platt Scaler
+                               |
+                     Flag Logic (spread_diff)
+                               |
+                     Groq Explanation Generator
+                               |
+                     FastAPI (Railway) -> React (Vercel)
 ```
 
-**2. Set up your environment**
+## Repo Structure
 
-```bash
-conda create -n cfb-agent python=3.11
-conda activate cfb-agent
-pip install -r requirements.txt
 ```
-
-**3. Add your API keys**
-
-```bash
-cp .env.example .env
-# Add your CFBD_API_KEY and GROQ_API_KEY
+cfb-agent/
+├── backend/          # FastAPI app — deployed on Railway
+│   ├── routers/      # picks, games, matchup, rankings, explanations, bayesian
+│   ├── models/       # LightGBM + Platt scaler artifacts
+│   ├── tools/        # explanation_generator, bayesian_updater
+│   └── constants.py  # shared threshold constants
+├── frontend/         # React app — deployed on Vercel
+│   ├── pages/        # GamesPage, PublicPicksPage, PickHistoryPage, admin pages
+│   └── components/   # Navbar, GameCard, WinProbGauge, ConfidenceBadge
+├── models/           # training scripts, platt_scaler
+├── tools/            # explanation_generator, bayesian_updater, stats_fetcher
+├── db/               # database.py, migrations/
+└── tests/            # 88 tests passing
 ```
-
-**4. Build the database**
-
-```bash
-python main.py
-```
-
-**5. Train the model**
-
-```bash
-python -m models.win_probability
-```
-
-**6. Launch the app**
-
-```bash
-streamlit run app.py
-```
-
------
 
 ## Roadmap
 
-- [ ] Add SP+ ratings as model features
-- [ ] Rolling 4-week form weighting
-- [ ] Injury report integration
-- [ ] Swap Groq for Anthropic Claude API
-- [ ] Expand to NFL regular season
+| Phase | Status |
+|---|---|
+| Data pipeline + Supabase migration | ✅ |
+| LightGBM model (21 features) | ✅ |
+| FastAPI backend | ✅ |
+| React frontend | ✅ |
+| Pick flagging + approval workflow | ✅ |
+| Platt scaling + AI explanation layer | ✅ |
+| Corrected flag logic + public picks page + Games page | ✅ |
+| Line value engine + power ratings pipeline | 🔜 Phase 7 |
+| Claude Sonnet swap + Prompt Eval Agent | 🔜 Phase 8 |
+| CLV dashboard + soft launch | 🔜 Phase 9 |
 
------
+## Background
 
-## About
+Former D1 football player (USF). Lead data analyst at Johnson & Johnson. This project sits at the intersection of both.
 
-Built by Jeff Hawkins — former D1 football player (USF) turned data analyst. This project sits at the intersection of two things I care about: sports and predictive analytics. The goal isn’t just to predict wins — it’s to understand *why* the model gets it wrong and build something more honest over time.
-
-Connect on [LinkedIn](https://www.linkedin.com/in/jeffrey-hawkins-a576a1128/) | [Live Demo](https://cfb-agent.streamlit.app/)
+Built to demonstrate end-to-end AI system design: data engineering, predictive modeling, LLM orchestration, and production deployment. Every pick tracked publicly against real outcomes.

@@ -198,23 +198,42 @@ cfb-agent/
 - `backend/db/` and `backend/models/` copied into backend for Railway self-containment
 - All endpoints tested live
 
+### Phase 6 (commits since Phase 5) ✅
+- **Corrected flag logic** — real spread_diff using `betting_lines.spread`, home/away sign-aware formula
+- **Updated thresholds** — `abs(spread)<=17`, `win_prob>=0.65`, `abs(spread_diff)>=5.0`
+- **`POST /picks/recalculate-spreads`** — backfills corrected spread_diff on existing picks
+- **`GET /picks/public`** — public endpoint, sorted by abs(model_spread_diff) descending
+- **`GET /games/weekly`** — FBS-only, batch prediction, model vs Vegas comparison, blowout filter
+- **Bayesian updater** — `tools/bayesian_updater.py`, weekly Platt scaler recalibration, SendGrid notification
+- **`POST /bayesian/update`** + **`GET /bayesian/performance`** — admin + public endpoints
+- **Public picks page** — `/picks` route, no auth, AI Analysis, Pick Spread/Model Line/Edge display
+- **Games page** — replaces Schedule, `/games` route, FBS only, confidence badges, 🔥 value pick flag
+- **AI explanation at flag time** — background task fires on insert, not on approval
+- **Shared constants** — `backend/constants.py` — single source of truth for all thresholds
+- **Batch prediction** — `predict_win_probability_batch()` — 10x performance improvement
+- **Groq prompt fix** — historical framing for all feature statistics
+- **88 tests passing**
+
 ---
 
 ## Current Phase
 
-### Next: Phase 6 — Bayesian Updating + Vercel Deploy 🔄
+### Next: Phase 7 — Line Value Engine + Weather + Power Ratings Pipeline 🔄
 
-**Pending manual steps:**
-1. Run `db/migrations/003_pick_explanations.sql` in Supabase SQL Editor
-2. Vercel deploy (if not yet done):
-   - Root directory: `frontend` | Build: `npm run build` | Output: `dist`
-   - Env vars: `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ADMIN_API_KEY`
-3. Railway secrets: `SENDGRID_API_KEY`, `NOTIFY_EMAIL` (ADMIN_API_KEY already set)
-4. GitHub Actions secrets: `RAILWAY_BACKEND_URL`, `ADMIN_API_KEY`
+Phase 6 complete. All deliverables live in production:
+- ✅ Corrected spread_diff formula (real betting lines, home/away sign convention)
+- ✅ Updated flag thresholds (abs(spread)<=17, win_prob>=0.65, abs(spread_diff)>=5.0)
+- ✅ Public picks page (/picks — no auth, fully open Season 1)
+- ✅ Games page replacing Schedule (/games — FBS only, win_prob>=0.55, model vs Vegas)
+- ✅ Bayesian updating pipeline (weekly performance tracking, Platt scaler recalibration)
+- ✅ AI explanation generated at flag time (not approval time)
+- ✅ Shared constants file (backend/constants.py)
+- ✅ Batch prediction (47 games in ~5s vs 2+ minutes previously)
+- ✅ 88 tests passing
 
 ---
 
-## Phase 6 Scope
+## Phase 6 Scope (archived)
 
 ### Flag Logic Corrections (pulling forward from Phase 7)
 - **Corrected spread_diff formula** — uses actual `betting_lines.spread` (not approximation)
@@ -288,6 +307,7 @@ cfb-agent/
 | Weather integration | 7 |
 | Power ratings pipeline (SP+ via CFBD, Sagarin + Massey scrapers → `power_ratings_comparison`) | 7 |
 | Blowout filter and spread_diff threshold | ✅ Pulled into Phase 6 |
+| Games page (model vs Vegas comparison) | ✅ Built in Phase 6 — SP+/Sagarin/Massey columns deferred to Phase 7 |
 | Spread display bug fix (too many decimals) | ✅ Fixed in Phase 5 post-patch |
 | Delete/undo on history page | 7 |
 | Groq → Claude Sonnet swap + Prompt Eval Agent | 8 |
@@ -351,4 +371,4 @@ VITE_ADMIN_API_KEY=
 
 ---
 
-*Last updated: Phase 5 complete and production-verified. Post-phase fixes: ret_totalppa lowercase alias, groq==1.1.0 added to backend requirements, spread display fixed, History page AI Analysis live. Phase 6 scope finalized: corrected spread_diff formula + blowout filter pulled forward, public /picks page added. Next: Phase 6 execution.*
+*Last updated: Phase 6 complete. Corrected flag logic, public picks page, Games page, Bayesian updater, batch prediction, 88 tests passing. Next: Phase 7 — Line value engine + weather + power ratings pipeline.*
