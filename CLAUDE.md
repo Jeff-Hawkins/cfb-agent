@@ -8,7 +8,7 @@
 ## Project Overview
 
 **Name:** CFB Agent
-**Purpose:** End-to-end AI sports analytics portfolio piece targeting AI/data roles (Anthropic, Spotify). Demonstrates predictive modeling, LLM orchestration, real-time data pipelines, and full-stack production deployment. No subscriptions or monetization in current plan — CLV dashboard and public track record are portfolio credibility metrics.
+**Purpose:** End-to-end AI sports analytics portfolio piece. Demonstrates predictive modeling, LLM orchestration, real-time data pipelines, and full-stack production deployment. No subscriptions or monetization in current plan — CLV dashboard and public track record are the primary credibility metrics.
 **Target users:** CFB bettors who want model-backed win probability, line value flags, and verified pick tracking (CLV as primary credibility metric).
 **Repo:** `github.com/Jeff-Hawkins/cfb-agent`
 **Local path:** `~/cfb-agent`
