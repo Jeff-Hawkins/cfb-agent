@@ -115,6 +115,11 @@ export async function getPublicPicks(season, week = null) {
   const url = week != null
     ? `${BASE}/picks/public?season=${season}&week=${week}`
     : `${BASE}/picks/public?season=${season}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
 /**
  * Generic API helper for simple GET/POST requests.
  */
