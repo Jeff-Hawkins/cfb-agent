@@ -112,7 +112,7 @@ def get_clv_summary(season: int) -> dict:
         Summary dict.
     """
     df = query_db(f"""
-        SELECT clv, clv_positive, outcome
+        SELECT cr.clv, cr.clv_positive, cr.outcome
         FROM clv_records cr
         JOIN picks p ON p.id = cr.pick_id
         WHERE p.season = {season}
