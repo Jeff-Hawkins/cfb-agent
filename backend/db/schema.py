@@ -6,8 +6,9 @@ any data is written.
 """
 
 from sqlalchemy import (
-    BigInteger, Boolean, Column, Float, MetaData, Table, Text
+    BigInteger, Boolean, Column, Float, MetaData, Table, Text, Integer, Numeric, DateTime, JSON
 )
+from sqlalchemy.dialects.postgresql import UUID, JSONB, TIMESTAMP
 from db.database import engine
 
 metadata = MetaData()
@@ -209,10 +210,12 @@ elo_ratings = Table(
 
 advanced_stats = Table(
     "advanced_stats", metadata,
-    Column("team",               Text),
-    Column("season",             BigInteger),
-    Column("offense_lineYards",  Float),
-    Column("defense_stuffRate",  Float),
+    Column("team",                Text),
+    Column("season",              BigInteger),
+    Column("offense_lineYards",   Float),
+    Column("defense_stuffRate",   Float),
+    Column("success_rate",        Float),
+    Column("defense_havoc_total", Float),
 )
 
 drives = Table(
@@ -256,17 +259,124 @@ pregame_wp = Table(
     Column("homeWinProbability", Float),
 )
 
+# Phase 7 & 8A tables
+
+game_outcomes = Table(
+    "game_outcomes", metadata,
+    Column("game_id",      Text, primary_key=True),
+    Column("home_team",    Text),
+    Column("away_team",    Text),
+    Column("home_score",   Integer),
+    Column("away_score",   Integer),
+    Column("game_result",  Text),
+    Column("ats_result",   Text),
+    Column("home_covered", Boolean),
+    Column("away_covered", Boolean),
+    Column("fetched_at",   TIMESTAMP(timezone=True)),
+)
+
+closing_lines = Table(
+    "closing_lines", metadata,
+    Column("game_id",        Text, primary_key=True),
+    Column("season",         Integer),
+    Column("week",           Integer),
+    Column("home_team",      Text),
+    Column("away_team",      Text),
+    Column("closing_spread", Numeric),
+    Column("closing_total",  Numeric),
+    Column("source",         Text),
+    Column("snapped_at",     TIMESTAMP(timezone=True)),
+)
+
+clv_records = Table(
+    "clv_records", metadata,
+    Column("id",             UUID(as_uuid=True), primary_key=True),
+    Column("pick_id",        UUID(as_uuid=True)),
+    Column("game_id",        Text),
+    Column("pick_team",      Text),
+    Column("pick_spread",    Numeric),
+    Column("closing_spread", Numeric),
+    Column("clv",            Numeric),
+    Column("clv_positive",   Boolean),
+    Column("outcome",        Text),
+    Column("recorded_at",    TIMESTAMP(timezone=True)),
+)
+
+cron_log = Table(
+    "cron_log", metadata,
+    Column("id",              UUID(as_uuid=True), primary_key=True),
+    Column("job_name",        Text),
+    Column("run_at",          TIMESTAMP(timezone=True)),
+    Column("records_updated", Integer),
+    Column("errors",          Text),
+    Column("status",          Text),
+)
+
+pick_explanations = Table(
+    "pick_explanations", metadata,
+    Column("id",                Integer, primary_key=True),
+    Column("pick_id",           UUID(as_uuid=True)),
+    Column("explanation_short", Text),
+    Column("explanation_full",  Text),
+    Column("feature_snapshot",  JSONB),
+    Column("model_version",     Text),
+    Column("generated_at",      TIMESTAMP(timezone=True)),
+)
+
+picks = Table(
+    "picks", metadata,
+    Column("id",                 UUID(as_uuid=True), primary_key=True),
+    Column("game_id",            Text),
+    Column("season",             Integer),
+    Column("week",               Integer),
+    Column("home_team",          Text),
+    Column("away_team",          Text),
+    Column("pick_team",          Text),
+    Column("win_probability",    Float),
+    Column("spread",             Float),
+    Column("model_spread_diff",  Float),
+    Column("confidence_label",   Text),
+    Column("approved",           Boolean),
+    Column("rejected",           Boolean),
+    Column("approval_timestamp", TIMESTAMP(timezone=True)),
+    Column("outcome",            Text),
+    Column("ats_result",         Text),
+    Column("clv",                Float),
+    Column("created_at",         TIMESTAMP(timezone=True)),
+    Column("pick_spread",        Numeric),
+)
+
+ppa_ratings = Table(
+    "ppa_ratings", metadata,
+    Column("id",                   Integer, primary_key=True),
+    Column("team",                 Text),
+    Column("season",               Integer),
+    Column("offense_ppa",          Float),
+    Column("defense_ppa",          Float),
+    Column("success_rate_offense", Float),
+    Column("success_rate_defense", Float),
+    Column("created_at",           TIMESTAMP(timezone=True)),
+)
+
+power_ratings_comparison = Table(
+    "power_ratings_comparison", metadata,
+    Column("id",            Integer, primary_key=True),
+    Column("team",          Text),
+    Column("season",        Integer),
+    Column("massey_rating", Float),
+    Column("sp_overall",    Float),
+    Column("z_massey",      Float),
+    Column("z_sp",          Float),
+    Column("composite_z",   Float),
+    Column("created_at",    TIMESTAMP(timezone=True)),
+)
+
 
 def create_all_tables():
     """Create all CFB agent tables in the database if they do not already exist.
 
     Uses SQLAlchemy's checkfirst=True so this is safe to call on every startup —
     existing tables and their data are never dropped or modified.
-
-    Tables created (in dependency order):
-        games, team_stats, betting_lines, sp_ratings, recruiting_rankings,
-        returning_production, coaches, portal_players, portal_net_ratings,
-        preseason_2026, elo_ratings, advanced_stats, drives, pregame_wp
     """
     metadata.create_all(engine, checkfirst=True)
     print("All tables verified / created.")

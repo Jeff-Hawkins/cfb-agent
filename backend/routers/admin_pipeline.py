@@ -53,5 +53,25 @@ def refresh_stats(
 ):
     """Trigger fetch of advanced stats for a season."""
     from tools.stats_fetcher import fetch_advanced_stats
+    from tools.advanced_stats_updater import backfill_advanced_stats_extended
+    
+    # 1. Base advanced stats
     df = fetch_advanced_stats(season)
+    # 2. Extended stats (success rate, havoc)
+    backfill_advanced_stats_extended(start=season, end=season)
+    
     return {"records_updated": len(df)}
+
+@router.post("/ratings/refresh")
+def refresh_ratings(
+    season: int = Query(..., description="Season year"),
+    _: HTTPAuthorizationCredentials = Depends(_require_admin)
+):
+    """Trigger fetch of PPA and Massey ratings for a season."""
+    from tools.ppa_fetcher import upsert_ppa_ratings
+    from tools.massey_scraper import upsert_massey_ratings
+    
+    upsert_ppa_ratings(season)
+    upsert_massey_ratings(season)
+    
+    return {"status": "success"}

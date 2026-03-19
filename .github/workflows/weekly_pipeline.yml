@@ -114,7 +114,22 @@ jobs:
           "
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Job 4: bayesian-update — runs Sunday 11 AM ET (cron "0 15 * * 0")
+  # Job 4: ratings-refresh — runs Sunday 10:30 AM ET
+  # ─────────────────────────────────────────────────────────────────────────────
+  ratings-refresh:
+    runs-on: ubuntu-latest
+    needs: compute-week
+    if: github.event.schedule == '0 14 * * 0' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Refresh PPA and Massey ratings
+        run: |
+          echo "Refreshing PPA and Massey ratings for 2025..."
+          curl -s -f -X POST \
+            "$RAILWAY_BACKEND_URL/admin/ratings/refresh?season=2025" \
+            -H "Authorization: Bearer $ADMIN_API_KEY"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 5: bayesian-update — runs Sunday 11 AM ET (cron "0 15 * * 0")
   #         Runs after update-outcomes has completed successfully.
   # ─────────────────────────────────────────────────────────────────────────────
   bayesian-update:
