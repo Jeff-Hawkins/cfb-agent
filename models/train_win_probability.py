@@ -85,6 +85,13 @@ FEATURE_COLS_V2 = [
     "home_field",
 ]
 
+FEATURE_COLS_V3 = FEATURE_COLS_V2 + [
+    "offense_ppa_diff",
+    "defense_ppa_diff",
+    "success_rate_diff",
+    "defense_havoc_diff",
+]
+
 # These are the team_stats-derived features present in v1 that are removed in v2.
 REMOVED_FEATURES_V1 = [
     "home_pointsPerGame", "away_pointsPerGame", "diff_pointsPerGame",
@@ -92,10 +99,37 @@ REMOVED_FEATURES_V1 = [
     "home_rushingYards",  "away_rushingYards",  "diff_rushingYards",
 ]
 
+FEATURE_CLIPS_V3 = {
+    **FEATURE_CLIPS,
+    'offense_ppa_diff':   (-2.0, 2.0),
+    'defense_ppa_diff':   (-2.0, 2.0),
+    'success_rate_diff':  (-0.2, 0.2),
+    'defense_havoc_diff': (-0.15, 0.15),
+}
+
 
 # ---------------------------------------------------------------------------
 # Data loaders (all features use season-1 lookup year)
 # ---------------------------------------------------------------------------
+
+def _load_ppa_ratings():
+    """Load per-team PPA and success rates from ppa_ratings table."""
+    return query_db(
+        "SELECT season AS year, team, offense_ppa, defense_ppa, success_rate_offense AS success_rate "
+        "FROM ppa_ratings"
+    )
+
+def _load_advanced_stats_v3(season):
+    """Load line play and havoc from advanced_stats for season-1."""
+    return query_db(f"""
+        SELECT team, season,
+               "offense_lineYards",
+               "defense_stuffRate",
+               "success_rate",
+               "defense_havoc_total"
+        FROM advanced_stats
+        WHERE season = {season}
+    """)
 
 def _load_sp():
     """SP+ ratings for all teams and years."""
@@ -333,9 +367,62 @@ def _build_features_v2(
     return f
 
 
+def _build_features_v3(
+    home_team, away_team, season,
+    sp, rec, ret, coa, elo, talent, portal, line, ppa,
+    neutral_site=False,
+):
+    """Build the 21 v3 features for a single game."""
+    # Start with V2 base
+    f = _build_features_v2(
+        home_team, away_team, season,
+        sp, rec, ret, coa, elo, talent, portal, line,
+        neutral_site=neutral_site
+    )
+    if f is None:
+        return None
+
+    ly = season - 1
+
+    # PPA Diff
+    h_oppa = _scalar(ppa, "team", "year", "offense_ppa", home_team, ly, default=0.0)
+    a_oppa = _scalar(ppa, "team", "year", "offense_ppa", away_team, ly, default=0.0)
+    f["offense_ppa_diff"] = h_oppa - a_oppa
+
+    h_dppa = _scalar(ppa, "team", "year", "defense_ppa", home_team, ly, default=0.0)
+    a_dppa = _scalar(ppa, "team", "year", "defense_ppa", away_team, ly, default=0.0)
+    f["defense_ppa_diff"] = h_dppa - a_dppa
+
+    # Success Rate Diff (from advanced_stats or ppa_ratings)
+    h_sr = _scalar(line, "team", "season", "success_rate", home_team, ly, default=None)
+    if h_sr is None:
+        h_sr = _scalar(ppa, "team", "year", "success_rate", home_team, ly, default=0.40)
+    
+    a_sr = _scalar(line, "team", "season", "success_rate", away_team, ly, default=None)
+    if a_sr is None:
+        a_sr = _scalar(ppa, "team", "year", "success_rate", away_team, ly, default=0.40)
+    
+    f["success_rate_diff"] = h_sr - a_sr
+
+    # Defense Havoc Diff
+    h_hv = _scalar(line, "team", "season", "defense_havoc_total", home_team, ly, default=0.15)
+    a_hv = _scalar(line, "team", "season", "defense_havoc_total", away_team, ly, default=0.15)
+    f["defense_havoc_diff"] = h_hv - a_hv
+
+    return f
+
+
 def _apply_clips(df: pd.DataFrame) -> pd.DataFrame:
-    """Clip outlier-prone features to prevent extreme win probability outputs."""
+    """Clip outlier-prone features (V2)."""
     for col, (lo, hi) in FEATURE_CLIPS.items():
+        if col in df.columns:
+            df[col] = df[col].clip(lo, hi)
+    return df
+
+
+def _apply_clips_v3(df: pd.DataFrame) -> pd.DataFrame:
+    """Clip outlier-prone features to prevent extreme win probability outputs."""
+    for col, (lo, hi) in FEATURE_CLIPS_V3.items():
         if col in df.columns:
             df[col] = df[col].clip(lo, hi)
     return df
@@ -688,5 +775,278 @@ def train_v2():
     return lgbm_model, calibrated_model, FEATURE_COLS_V2
 
 
+def build_training_data_v3():
+    """Load FBS games 2021-2024 and build the 21-feature v3 training set."""
+    games = query_db("""
+        SELECT DISTINCT ON (g.id)
+               g.id, g."homeTeam", g."awayTeam",
+               g."homePoints", g."awayPoints",
+               g.season, g."neutralSite"
+        FROM games g
+        INNER JOIN betting_lines bl ON bl.game_id::bigint = g.id::bigint
+        WHERE g."homePoints"  IS NOT NULL
+          AND g."awayPoints"  IS NOT NULL
+          AND g."homeClassification" = 'fbs'
+          AND g."awayClassification" = 'fbs'
+          AND g.season BETWEEN 2021 AND 2024
+        ORDER BY g.id
+    """)
+
+    sp, rec, ret, coa, elo, talent, portal = _load_all_tables()
+    ppa = _load_ppa_ratings()
+    
+    line_cache = {}
+    records, sample_weights = [], []
+
+    for _, game in games.iterrows():
+        season  = int(game["season"])
+        neutral = bool(game["neutralSite"])
+        
+        if season not in line_cache:
+            line_cache[season] = _load_advanced_stats_v3(season - 1)
+
+        features = _build_features_v3(
+            game["homeTeam"], game["awayTeam"], season,
+            sp, rec, ret, coa, elo, talent, portal, line_cache[season], ppa,
+            neutral_site=neutral,
+        )
+        if features is None:
+            continue
+
+        features["home_win"] = 1 if game["homePoints"] > game["awayPoints"] else 0
+        features["season"]   = season
+        records.append(features)
+        sample_weights.append(RECENCY_WEIGHTS.get(season, 1.0))
+
+    df = pd.DataFrame(records).fillna(0)
+    df = _apply_clips_v3(df)
+    return df, np.array(sample_weights)
+
+
+def build_holdout_v3():
+    """Load completed 2025 FBS games and build v3 features for holdout evaluation."""
+    games = query_db("""
+        SELECT DISTINCT ON (g.id)
+               g.id, g."homeTeam", g."awayTeam",
+               g."homePoints", g."awayPoints",
+               g.season, g."neutralSite"
+        FROM games g
+        INNER JOIN betting_lines bl ON bl.game_id::bigint = g.id::bigint
+        WHERE g."homePoints"  IS NOT NULL
+          AND g."awayPoints"  IS NOT NULL
+          AND g."homeClassification" = 'fbs'
+          AND g."awayClassification" = 'fbs'
+          AND g.season = 2025
+        ORDER BY g.id
+    """)
+
+    if games.empty:
+        return pd.DataFrame(), np.array([])
+
+    sp, rec, ret, coa, elo, talent, portal = _load_all_tables()
+    ppa = _load_ppa_ratings()
+    
+    line_cache = {}
+    records = []
+    for _, game in games.iterrows():
+        season  = int(game["season"])
+        neutral = bool(game["neutralSite"])
+        
+        if season not in line_cache:
+            line_cache[season] = _load_advanced_stats_v3(season - 1)
+
+        features = _build_features_v3(
+            game["homeTeam"], game["awayTeam"], season,
+            sp, rec, ret, coa, elo, talent, portal, line_cache[season], ppa,
+            neutral_site=neutral,
+        )
+        if features is None:
+            continue
+
+        features["home_win"]  = 1 if game["homePoints"] > game["awayPoints"] else 0
+        features["season"]    = season
+        features["homeTeam"]  = game["homeTeam"]
+        features["awayTeam"]  = game["awayTeam"]
+        records.append(features)
+
+    if not records:
+        return pd.DataFrame(), np.array([])
+
+    df = pd.DataFrame(records).fillna(0)
+    df = _apply_clips_v3(df)
+    return df, np.array([])
+
+
+def train_v3():
+    """Train the v3 model, evaluate, print report, and save artifacts."""
+    sep = "=" * 55
+    print(sep)
+    print("=== V3 RETRAIN REPORT ===")
+    print(sep)
+
+    # ------------------------------------------------------------------ #
+    # 1. Training data
+    # ------------------------------------------------------------------ #
+    print("\nBuilding training data (2021-2024)...")
+    train_df, weights = build_training_data_v3()
+    
+    X_train = train_df[FEATURE_COLS_V3].fillna(0)
+    y_train = train_df["home_win"]
+    w_train = weights
+
+    print(f"Total training games (2021-2024): {len(train_df)}")
+    print(f"Features: {len(FEATURE_COLS_V3)}")
+
+    # ------------------------------------------------------------------ #
+    # 2. Train LightGBM & Isotonic Calibration
+    # ------------------------------------------------------------------ #
+    print("Training raw LightGBM...")
+    lgbm_model = lgb.LGBMClassifier(
+        n_estimators=500,
+        learning_rate=0.05,
+        num_leaves=31,
+        min_child_samples=20,
+        reg_alpha=0.1,
+        reg_lambda=0.1,
+        subsample=0.8,
+        random_state=42,
+        verbose=-1,
+    )
+    lgbm_model.fit(X_train, y_train, sample_weight=w_train)
+
+    print("Fitting Isotonic calibration (5-fold CV)...")
+    calibrated_model = CalibratedClassifierCV(
+        lgbm_model,
+        method='isotonic',
+        cv=5
+    )
+    calibrated_model.fit(X_train, y_train, sample_weight=w_train)
+
+    # ------------------------------------------------------------------ #
+    # 3. Holdout evaluation
+    # ------------------------------------------------------------------ #
+    print("Building 2025 holdout...")
+    holdout_df, _ = build_holdout_v3()
+
+    if holdout_df.empty:
+        print("No 2025 holdout games found — skipping evaluation.")
+        v3_acc = v3_brier = 0.0
+    else:
+        X_test = holdout_df[FEATURE_COLS_V3].fillna(0)
+        y_test = holdout_df["home_win"].values
+
+        cal_probs_v3 = calibrated_model.predict_proba(X_test)[:, 1]
+        v3_acc   = accuracy_score(y_test, (cal_probs_v3 >= 0.5).astype(int))
+        v3_brier = brier_score_loss(y_test, cal_probs_v3)
+
+    # ------------------------------------------------------------------ #
+    # 4. v2 comparison on the same holdout games
+    # ------------------------------------------------------------------ #
+    v2_model_path = os.path.join(SAVED, "win_prob_model_v2.pkl")
+    v2_cols_path = os.path.join(SAVED, "feature_cols_v2.pkl")
+    v2_cal_path = os.path.join(SAVED, "isotonic_calibrator_v2.joblib")
+    
+    v2_acc = 0.0
+    v2_brier = 0.0
+    
+    if all(os.path.exists(p) for p in [v2_model_path, v2_cols_path, v2_cal_path]):
+        v2_model = joblib.load(v2_model_path)
+        v2_cols = joblib.load(v2_cols_path)
+        v2_cal = joblib.load(v2_cal_path)
+        
+        # Build V2 features for SAME holdout games
+        sp, rec, ret, coa, elo, talent, portal = _load_all_tables()
+        line_cache = {}
+        v2_rows, v2_y = [], []
+        for _, game in holdout_df.iterrows():
+            sn = int(game["season"])
+            if sn not in line_cache:
+                line_cache[sn] = _load_line_play(sn - 1)
+            
+            f2 = _build_features_v2(
+                game["homeTeam"], game["awayTeam"], sn,
+                sp, rec, ret, coa, elo, talent, portal, line_cache[sn],
+                neutral_site=bool(game.get("neutral_site", 0))
+            )
+            if f2:
+                v2_rows.append(f2)
+                v2_y.append(game["home_win"])
+        
+        if v2_rows:
+            X_v2 = pd.DataFrame(v2_rows)[v2_cols].fillna(0)
+            X_v2 = _apply_clips(X_v2)
+            probs_v2 = v2_cal.predict_proba(X_v2)[:, 1]
+            v2_acc = accuracy_score(v2_y, (probs_v2 >= 0.5).astype(int))
+            v2_brier = brier_score_loss(v2_y, probs_v2)
+
+    # ------------------------------------------------------------------ #
+    # 5. Print Report (Task 4)
+    # ------------------------------------------------------------------ #
+    print(f"\n=== V3 TRAINING REPORT ===")
+    print(f"Features included: {FEATURE_COLS_V3}")
+    print(f"Features excluded (coverage): none")
+    print(f"Training samples: {len(train_df)}")
+    print(f"Holdout samples (2025): {len(holdout_df)}")
+
+    print("\n--- Accuracy ---")
+    print(f"V2 holdout accuracy: {v2_acc:.4f}")
+    print(f"V3 holdout accuracy: {v3_acc:.4f}")
+    print(f"Delta: {v3_acc - v2_acc:.4f}")
+
+    print("\n--- Brier Score ---")
+    print(f"V2 Brier: {v2_brier:.4f}")
+    print(f"V3 Brier: {v3_brier:.4f}")
+    print(f"Delta: {v3_brier - v2_brier:.4f} (lower is better)")
+
+    print("\n--- Top 5 Feature Importances ---")
+    importances = lgbm_model.feature_importances_
+    feat_imp = sorted(zip(FEATURE_COLS_V3, importances), key=lambda x: x[1], reverse=True)
+    for i, (f_name, imp) in enumerate(feat_imp[:5]):
+        print(f"{i+1}. {f_name}: {imp}")
+
+    print("\n--- Calibration Check ---")
+    for lo, hi in [(0.0, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 1.0)]:
+        mask = (cal_probs_v3 >= lo) & (cal_probs_v3 < hi)
+        if mask.any():
+            pred = cal_probs_v3[mask].mean()
+            actual = y_test[mask].mean()
+            print(f"Avg predicted prob {lo}-{hi}: {pred:.3f} vs {actual:.3f} actual win rate")
+
+    verdict = "YES" if v3_brier < v2_brier else "NO"
+    reason = "V3 shows improved Brier score on 2025 holdout." if verdict == "YES" else "V3 did not outperform V2 on holdout."
+    print("\n--- Verdict ---")
+    print(f"V3 recommended for deployment: {verdict}")
+    print(f"Reason: {reason}")
+    print("==========================")
+
+    # ------------------------------------------------------------------ #
+    # 6. Save Artifacts
+    # ------------------------------------------------------------------ #
+    os.makedirs(SAVED, exist_ok=True)
+    joblib.dump(lgbm_model,      os.path.join(SAVED, "lgbm_v3.pkl"))
+    joblib.dump(calibrated_model, os.path.join(SAVED, "calibrator_v3.pkl"))
+    import json
+    with open(os.path.join(SAVED, "feature_list_v3.json"), "w") as f:
+        json.dump(FEATURE_COLS_V3, f)
+
+    # Mirror to backend
+    _backend_saved = os.path.join(os.path.dirname(__file__), "..", "backend", "models", "saved")
+    os.makedirs(_backend_saved, exist_ok=True)
+    import shutil
+    shutil.copy2(os.path.join(SAVED, "lgbm_v3.pkl"), os.path.join(_backend_saved, "lgbm_v3.pkl"))
+    shutil.copy2(os.path.join(SAVED, "calibrator_v3.pkl"), os.path.join(_backend_saved, "calibrator_v3.pkl"))
+    shutil.copy2(os.path.join(SAVED, "feature_list_v3.json"), os.path.join(_backend_saved, "feature_list_v3.json"))
+
+    print("\nV3 artifacts saved and mirrored to backend.")
+
+
 if __name__ == "__main__":
-    train_v2()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--v3", action="store_true", help="Train V3 model")
+    args = parser.parse_args()
+    
+    if args.v3:
+        train_v3()
+    else:
+        train_v2()

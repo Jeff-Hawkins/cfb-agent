@@ -141,7 +141,7 @@ cfb-agent/
 
 | Phase | Description | Status |
 |---|---|---|
-| 8B | Power Ratings Visualization & Sagarin Integration | 🔜 Next |
+| 8B | Power Ratings Visualization & Retrain V3 Model | ✅ |
 | 9 | CLV dashboard enhancements + Betstamp/Pikkit third-party verification | 🔜 |
 | Launch | August 2026 — portfolio piece complete | 🎯 |
 
@@ -155,6 +155,19 @@ cfb-agent/
 - **No Co-Authored-By in commits**
 - **backend/ is self-contained** — any root module used by API must be copied into `backend/`
 - **Use query_db()** for all database reads; `engine.begin()` for writes/updates.
+
+---
+
+## Model Status
+
+| Version | Features | Accuracy | Brier | Status |
+|---|---|---|---|---|
+| V2 | 17 | 64.59% | 0.2152 | Production (Default) |
+| V3 | 21 | 65.95% | 0.2144 | Available (MODEL_VERSION=v3) |
+
+- **V3 Features Added:** `offense_ppa_diff`, `defense_ppa_diff`, `success_rate_diff`, `defense_havoc_diff`.
+- **Artifacts:** `lgbm_v3.pkl`, `calibrator_v3.pkl`, `feature_list_v3.json` in `models/saved/`.
+- **Switching:** Set `MODEL_VERSION=v3` in Railway env vars to activate V3.
 
 ---
 
@@ -190,5 +203,5 @@ Modular reference files in `skills/`. Read the relevant skill before starting an
 | API | `skills/api.md` | Adding endpoints, modifying routers, Railway deploys |
 | Frontend | `skills/frontend.md` | Any React component, page, or Vercel deploy |
 | Testing | `skills/testing.md` | Writing any test or running the suite |
-| Model | `skills/model.md` | ⚠️ Not built yet — pending V3 confirmation |
+| Model | `skills/model.md` | Model versioning, artifacts, and training |
 

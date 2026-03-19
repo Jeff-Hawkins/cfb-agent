@@ -6,9 +6,14 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss
 import joblib
 import os
+import json
+
+# Support for model versioning
+MODEL_VERSION_FLAG = os.getenv("MODEL_VERSION", "v2")
 
 MODEL_VERSION = "2.0.0"
 MODEL_VERSION_V2 = "2.2.0"  # 17 features, isotonic calibration, line play added
+MODEL_VERSION_V3 = "3.0.0"  # 21 features, PPA + advanced stats extended
 
 RECENCY_WEIGHTS = {2021: 0.2, 2022: 0.4, 2023: 0.6, 2024: 0.8, 2025: 1.0}
 
@@ -92,12 +97,16 @@ def predict_win_probability(
     season: int = 2025,
     neutral_site: bool = False,
 ):
-    """Production win probability endpoint (redirects to v2)."""
+    """Production win probability endpoint (redirects based on MODEL_VERSION)."""
+    if MODEL_VERSION_FLAG == "v3":
+        return predict_win_probability_v3(home_team, away_team, season, neutral_site)
     return predict_win_probability_v2(home_team, away_team, season, neutral_site)
 
 
 def predict_win_probability_batch(games: list, season: int) -> list:
-    """Production batch win probability endpoint (redirects to v2)."""
+    """Production batch win probability endpoint (redirects based on MODEL_VERSION)."""
+    if MODEL_VERSION_FLAG == "v3":
+        return predict_win_probability_batch_v3(games, season)
     return predict_win_probability_batch_v2(games, season)
 
 
@@ -373,6 +382,200 @@ def predict_win_probability_batch_v2(games: list, season: int) -> list:
         cal_probs = calibrated_model.predict_proba(X)[:, 1]
     else:
         cal_probs = raw_probs
+
+    results = []
+    for game, raw_prob, cal_prob in zip(valid_games, raw_probs, cal_probs):
+        home_win_prob = round(float(cal_prob), 4)
+        results.append({
+            **game,
+            "home_win_prob":     home_win_prob,
+            "away_win_prob":     round(1.0 - home_win_prob, 4),
+            "raw_home_win_prob": round(float(raw_prob), 4),
+        })
+
+    return results
+
+# ---------------------------------------------------------------------------
+# v3 — 21-feature model (PPA + extended advanced stats)
+# ---------------------------------------------------------------------------
+
+_V3_FEATURE_CLIPS = {
+    **_V2_FEATURE_CLIPS,
+    "offense_ppa_diff":   (-2.0, 2.0),
+    "defense_ppa_diff":   (-2.0, 2.0),
+    "success_rate_diff":  (-0.2, 0.2),
+    "defense_havoc_diff": (-0.15, 0.15),
+}
+
+
+def _load_ppa_ratings():
+    """Load per-team PPA and success rates from ppa_ratings table."""
+    return query_db(
+        "SELECT season AS year, team, offense_ppa, defense_ppa, success_rate_offense AS success_rate "
+        "FROM ppa_ratings"
+    )
+
+
+def _load_advanced_stats_v3(season):
+    """Load line play and havoc from advanced_stats for season-1."""
+    return query_db(f"""
+        SELECT team, season,
+               "offense_lineYards",
+               "defense_stuffRate",
+               "success_rate",
+               "defense_havoc_total"
+        FROM advanced_stats
+        WHERE season = {season}
+    """)
+
+
+def _build_features_v3(
+    home_team, away_team, season,
+    sp, rec, ret, coa, elo, talent, portal, line, ppa,
+    neutral_site=False,
+):
+    """Build the 21 v3 features for a single game."""
+    # Start with V2 base
+    f = _build_features_v2(
+        home_team, away_team, season,
+        sp, rec, ret, coa, elo, talent, portal, line,
+        neutral_site=neutral_site
+    )
+    if f is None:
+        return None
+
+    ly = season - 1
+
+    # PPA Diff
+    h_oppa = _scalar_v2(ppa, "team", "year", "offense_ppa", home_team, ly, default=0.0)
+    a_oppa = _scalar_v2(ppa, "team", "year", "offense_ppa", away_team, ly, default=0.0)
+    f["offense_ppa_diff"] = h_oppa - a_oppa
+
+    h_dppa = _scalar_v2(ppa, "team", "year", "defense_ppa", home_team, ly, default=0.0)
+    a_dppa = _scalar_v2(ppa, "team", "year", "defense_ppa", away_team, ly, default=0.0)
+    f["defense_ppa_diff"] = h_dppa - a_dppa
+
+    # Success Rate Diff
+    h_sr = _scalar_v2(line, "team", "season", "success_rate", home_team, ly, default=None)
+    if h_sr is None:
+        h_sr = _scalar_v2(ppa, "team", "year", "success_rate", home_team, ly, default=0.40)
+    
+    a_sr = _scalar_v2(line, "team", "season", "success_rate", away_team, ly, default=None)
+    if a_sr is None:
+        a_sr = _scalar_v2(ppa, "team", "year", "success_rate", away_team, ly, default=0.40)
+    
+    f["success_rate_diff"] = h_sr - a_sr
+
+    # Defense Havoc Diff
+    h_hv = _scalar_v2(line, "team", "season", "defense_havoc_total", home_team, ly, default=0.15)
+    a_hv = _scalar_v2(line, "team", "season", "defense_havoc_total", away_team, ly, default=0.15)
+    f["defense_havoc_diff"] = h_hv - a_hv
+
+    # Apply V3 clips
+    for col, (lo, hi) in _V3_FEATURE_CLIPS.items():
+        if col in f:
+            f[col] = max(lo, min(hi, f[col]))
+
+    return f
+
+
+def _load_v3_tables(season=None):
+    """Load all reference tables once and return as a tuple."""
+    return (
+        _load_sp(),
+        _load_recruiting(),
+        _load_returning(),
+        _load_coaches(),
+        _load_elo(),
+        _load_talent(),
+        _load_portal_v2(),
+        _load_advanced_stats_v3(season - 1) if season else None,
+        _load_ppa_ratings(),
+    )
+
+
+def predict_win_probability_v3(
+    home_team: str,
+    away_team: str,
+    season: int = 2025,
+    neutral_site: bool = False,
+):
+    """Predict home-team win probability using the v3 21-feature model."""
+    _saved = os.path.join(os.path.dirname(__file__), "saved")
+    model_path  = os.path.join(_saved, "lgbm_v3.pkl")
+    cal_path    = os.path.join(_saved, "calibrator_v3.pkl")
+    cols_path   = os.path.join(_saved, "feature_list_v3.json")
+
+    if not os.path.exists(model_path):
+        return "v3 model artifacts not found — train v3 first"
+
+    model = joblib.load(model_path)
+    calibrator = joblib.load(cal_path)
+    with open(cols_path, "r") as f:
+        feature_cols = json.load(f)
+
+    sp, rec, ret, coa, elo, talent, portal, line, ppa = _load_v3_tables(season)
+
+    features = _build_features_v3(
+        home_team, away_team, season,
+        sp, rec, ret, coa, elo, talent, portal, line, ppa,
+        neutral_site=neutral_site,
+    )
+
+    if features is None:
+        return f"No data found for {home_team} or {away_team} in {season - 1}"
+
+    X = pd.DataFrame([features])[feature_cols]
+    raw_win_prob = round(float(model.predict_proba(X)[0][1]), 4)
+    win_prob = round(float(calibrator.predict_proba(X)[0][1]), 4)
+
+    return {"win_prob": win_prob, "raw_win_prob": raw_win_prob}
+
+
+def predict_win_probability_batch_v3(games: list, season: int) -> list:
+    """Run v3 win probability prediction for multiple games in one vectorized call."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not games:
+        return []
+
+    _saved = os.path.join(os.path.dirname(__file__), "saved")
+    model_path  = os.path.join(_saved, "lgbm_v3.pkl")
+    cal_path    = os.path.join(_saved, "calibrator_v3.pkl")
+    cols_path   = os.path.join(_saved, "feature_list_v3.json")
+
+    if not os.path.exists(model_path):
+        logger.error("v3 model artifacts not found")
+        return []
+
+    model = joblib.load(model_path)
+    calibrator = joblib.load(cal_path)
+    with open(cols_path, "r") as f:
+        feature_cols = json.load(f)
+
+    sp, rec, ret, coa, elo, talent, portal, line, ppa = _load_v3_tables(season)
+
+    feature_rows = []
+    valid_games  = []
+
+    for game in games:
+        features = _build_features_v3(
+            game["home_team"], game["away_team"], season,
+            sp, rec, ret, coa, elo, talent, portal, line, ppa,
+            neutral_site=game.get("neutral_site", False),
+        )
+        if features is None:
+            continue
+        feature_rows.append(features)
+        valid_games.append(game)
+
+    if not feature_rows:
+        return []
+
+    X = pd.DataFrame(feature_rows)[feature_cols]
+    raw_probs = model.predict_proba(X)[:, 1]
+    cal_probs = calibrator.predict_proba(X)[:, 1]
 
     results = []
     for game, raw_prob, cal_prob in zip(valid_games, raw_probs, cal_probs):

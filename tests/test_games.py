@@ -24,9 +24,9 @@ client = TestClient(app)
 
 def _games_df(rows=None):
     """Build a games DataFrame matching the /games/weekly query shape."""
-    cols = ["id", "homeTeam", "awayTeam", "homePoints", "awayPoints", "neutralSite", "completed"]
+    cols = ["id", "homeTeam", "awayTeam", "homePoints", "awayPoints", "neutralSite", "completed", "homeConference", "awayConference", "homeClassification", "awayClassification"]
     if rows is None:
-        rows = [("1001", "Alabama", "Auburn", "", "", False, False)]
+        rows = [("1001", "Alabama", "Auburn", "", "", False, False, "SEC", "SEC", "fbs", "fbs")]
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -80,9 +80,9 @@ class TestGetWeeklyGames(unittest.TestCase):
     def test_sorted_by_model_edge_desc(self, mock_batch, mock_qdb):
         """Results should be ordered by model_edge descending."""
         games = pd.DataFrame([
-            ("1001", "Alabama", "Auburn",  "", "", False, False),
-            ("1002", "Georgia", "Florida", "", "", False, False),
-        ], columns=["id", "homeTeam", "awayTeam", "homePoints", "awayPoints", "neutralSite", "completed"])
+            ("1001", "Alabama", "Auburn",  "", "", False, False, "SEC", "SEC", "fbs", "fbs"),
+            ("1002", "Georgia", "Florida", "", "", False, False, "SEC", "SEC", "fbs", "fbs"),
+        ], columns=["id", "homeTeam", "awayTeam", "homePoints", "awayPoints", "neutralSite", "completed", "homeConference", "awayConference", "homeClassification", "awayClassification"])
 
         # Alabama spread=-14 → home_implied=-6.16 → edge=abs(-14-(-6.16))=7.84
         # Georgia  spread=-7  → home_implied=-6.16 → edge=abs(-7-(-6.16))=0.84

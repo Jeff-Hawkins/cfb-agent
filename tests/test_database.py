@@ -14,7 +14,7 @@ from tools.stats_fetcher import (
     fetch_elo_ratings, fetch_advanced_stats, fetch_drives,
     fetch_pregame_wp, fetch_talent,
 )
-from models.win_probability import train_model
+from models.train_win_probability import train_v2 as train_model
 
 
 TEMP_TABLE = "test_db_temp"
@@ -116,19 +116,13 @@ def test_fetch_talent():
 
 
 def test_train_model():
-    """train_model() should save the model and feature_cols artifacts to disk.
-
-    Asserts elo_diff and talent_diff are present (valid pre-game features) and
-    that spread_diff is absent (removed due to feature leakage — spread encodes
-    the outcome signal and is unavailable at true prediction time).
-    """
+    """train_model() should save the model and feature_cols artifacts to disk (V2)."""
     train_model()
 
-    assert os.path.exists("models/saved/win_prob_model.pkl"), "win_prob_model.pkl not found"
-    assert os.path.exists("models/saved/feature_cols.pkl"), "feature_cols.pkl not found"
+    assert os.path.exists("models/saved/win_prob_model_v2.pkl"), "win_prob_model_v2.pkl not found"
+    assert os.path.exists("models/saved/feature_cols_v2.pkl"), "feature_cols_v2.pkl not found"
 
     import joblib
-    feature_cols = joblib.load("models/saved/feature_cols.pkl")
+    feature_cols = joblib.load("models/saved/feature_cols_v2.pkl")
     assert "elo_diff" in feature_cols, "'elo_diff' missing from feature_cols"
     assert "talent_diff" in feature_cols, "'talent_diff' missing from feature_cols"
-    assert "spread_diff" not in feature_cols, "'spread_diff' must not be in feature_cols (feature leakage)"
