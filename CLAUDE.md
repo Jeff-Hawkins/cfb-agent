@@ -42,7 +42,12 @@ cfb-agent/
 │   ├── stats_fetcher.py
 │   ├── fetch_outcomes.py           # Phase 7 ✅
 │   ├── snapshot_closing_lines.py   # Phase 7 ✅
-│   └── calculate_clv.py            # Phase 7 ✅
+│   ├── calculate_clv.py            # Phase 7 ✅
+│   ├── ppa_fetcher.py              # Phase 8A ✅
+│   ├── advanced_stats_updater.py   # Phase 8A ✅
+│   ├── massey_scraper.py           # Phase 8A ✅
+│   └── utils/
+│       └── team_transformer.py     # Phase 8A ✅
 ├── db/
 │   ├── database.py
 │   ├── schema.py
@@ -85,6 +90,7 @@ cfb-agent/
 │       └── cron_tuesday.yml        # Phase 7 ✅
 ├── tests/
 │   ├── test_phase7.py              # Phase 7 ✅
+│   ├── test_phase8a.py             # Phase 8A ✅
 │   └── ...
 └── ...
 ```
@@ -120,13 +126,22 @@ cfb-agent/
 - **Cron Stubs** — GitHub Actions workflows for Sunday/Tuesday automation.
 - **113 tests passing**
 
+### Phase 8A ✅
+- **Data Expansion** — Extended `advanced_stats` with `success_rate` and `defense_havoc_total`.
+- **PPA Pipeline** — `tools/ppa_fetcher.py` for per-team PPA and success rates.
+- **Massey Scraper** — `tools/massey_scraper.py` for scraping Kenneth Massey's ratings.
+- **Power Ratings Comparison** — Added `power_ratings_comparison` table with Z-score logic.
+- **Centralized Utils** — `tools/utils/team_transformer.py` for canonical CFBD name mapping.
+- **Cron Update** — Sunday pipeline now includes PPA and Massey rating refreshes.
+- **116 tests passing**
+
 ---
 
 ## Upcoming Phases
 
 | Phase | Description | Status |
 |---|---|---|
-| 8 | Power Ratings Pipeline (Sagarin/Massey scrapers → `power_ratings_comparison` table, Sunday cron, model comparison on Games page) | 🔜 Next |
+| 8B | Power Ratings Visualization & Sagarin Integration | 🔜 Next |
 | 9 | CLV dashboard enhancements + Betstamp/Pikkit third-party verification | 🔜 |
 | Launch | August 2026 — portfolio piece complete | 🎯 |
 
@@ -143,21 +158,37 @@ cfb-agent/
 
 ---
 
-## Database Tables (New in Phase 7)
+## Database Tables (New in Phase 7/8A)
 
 - **`game_outcomes`**: Final scores and ATS resolution.
 - **`closing_lines`**: Final market lines before kickoff.
 - **`clv_records`**: Per-pick CLV (pick_spread - closing_spread).
 - **`cron_log`**: Audit trail for automated pipelines.
+- **`ppa_ratings`**: Per-team PPA and success rates.
+- **`power_ratings_comparison`**: Massey vs SP+ comparison with Z-scores.
 - **`picks.pick_spread`**: Column added to capture spread at approval time.
 
 ---
 
 ## Cron Infrastructure
 
-- **Sunday (8pm ET)**: `outcomes/refresh` (Manual via GitHub Action until Aug 2026).
+- **Sunday (8pm ET)**: `outcomes/refresh`, `ratings/refresh` (Manual via GitHub Action until Aug 2026).
 - **Tuesday (12pm ET)**: `stats/refresh` (Advanced stats and power ratings).
 
 ---
 
-*Last updated: Phase 7 complete. Portfolio-focused roadmap: 1 phase remaining (8: power ratings pipeline). Target: August 2026.*
+*Last updated: Phase 8A complete. Portfolio-focused roadmap: 1 phase remaining (8B: power ratings visualization). Target: August 2026.*
+
+## Skills
+
+Modular reference files in `skills/`. Read the relevant skill before starting any task in that domain.
+
+| Skill | File | Read Before |
+|---|---|---|
+| Database | `skills/db.md` | Any DB query, migration, or schema change |
+| Predictions | `skills/predictions.md` | Any change to flag logic, thresholds, or model inference |
+| API | `skills/api.md` | Adding endpoints, modifying routers, Railway deploys |
+| Frontend | `skills/frontend.md` | Any React component, page, or Vercel deploy |
+| Testing | `skills/testing.md` | Writing any test or running the suite |
+| Model | `skills/model.md` | ⚠️ Not built yet — pending V3 confirmation |
+
