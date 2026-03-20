@@ -1,0 +1,19 @@
+name: Railway Keep-Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-railway:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Railway health endpoint
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://cfb-agent-production.up.railway.app/health)
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed with status $STATUS"
+            exit 1
+          fi
