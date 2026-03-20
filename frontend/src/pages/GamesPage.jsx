@@ -1,42 +1,18 @@
 /**
- * GamesPage — public view of weekly FBS games with model vs Vegas comparison.
+ * GamesPage — FBS schedule with Vegas lines and win probabilities.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { getWeeklyGames } from '../api/client'
 
 const SEASON = 2025
 const WEEKS  = Array.from({ length: 15 }, (_, i) => i + 1)
 
-const LABEL_COLORS = {
-  Lean:     'bg-yellow-700 text-yellow-100',
-  Moderate: 'bg-orange-700 text-orange-100',
-  Strong:   'bg-red-700   text-red-100',
-}
-
-function confidenceLabel(maxWinProb) {
-  if (maxWinProb >= 0.85) return 'Strong'
-  if (maxWinProb >= 0.75) return 'Moderate'
-  if (maxWinProb >= 0.60) return 'Lean'
-  return null
-}
-
-function ConfidencePill({ prob }) {
-  const label = confidenceLabel(prob)
-  if (!label) return null
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${LABEL_COLORS[label]}`}>
-      {label}
-    </span>
-  )
-}
-
 function ConfGroupBadge({ group }) {
   if (!group) return null
-  const colors = group === 'P4' 
-    ? 'bg-blue-900/40 text-blue-200 border-blue-800/50' 
+  const colors = group === 'P4'
+    ? 'bg-blue-900/40 text-blue-200 border-blue-800/50'
     : 'bg-amber-900/40 text-amber-200 border-amber-800/50'
-  
+
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider ${colors}`}>
       {group}
@@ -51,9 +27,7 @@ function formatSpread(val) {
 }
 
 function GameCard({ game }) {
-  const navigate    = useNavigate()
-  const maxWinProb  = Math.max(game.home_win_prob, game.away_win_prob)
-  const isFinal     = game.status === 'final'
+  const isFinal = game.status === 'final'
 
   return (
     <div className="bg-[#111111] border border-[#222222] rounded-xl p-5 relative overflow-hidden">
@@ -64,17 +38,6 @@ function GameCard({ game }) {
           <p className="text-gray-400 text-xs">
             {game.away_team} @ {game.home_team} — Week {game.week}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ConfidencePill prob={maxWinProb} />
-          {game.has_approved_pick && (
-            <button
-              onClick={() => navigate('/picks')}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#C9A84C] text-black hover:bg-[#e0be6a] transition-colors shadow-lg shadow-black/20"
-            >
-              🔥 Value Pick
-            </button>
-          )}
         </div>
       </div>
 
@@ -97,10 +60,12 @@ function GameCard({ game }) {
               <span className="text-gray-500">Win Prob</span>
               <span className="text-white font-medium">{(game.away_win_prob * 100).toFixed(0)}%</span>
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Model Line</span>
-              <span className="text-white font-mono">{formatSpread(game.away_implied_spread)}</span>
-            </div>
+            {game.sp_away != null && (
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">SP+</span>
+                <span className="text-white font-mono">{Number(game.sp_away).toFixed(1)}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -111,15 +76,17 @@ function GameCard({ game }) {
               <span className="text-gray-500">Win Prob</span>
               <span className="text-white font-medium">{(game.home_win_prob * 100).toFixed(0)}%</span>
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Model Line</span>
-              <span className="text-white font-mono">{formatSpread(game.home_implied_spread)}</span>
-            </div>
+            {game.sp_home != null && (
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">SP+</span>
+                <span className="text-white font-mono">{Number(game.sp_home).toFixed(1)}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Vegas line and edge */}
+      {/* Vegas line */}
       <div className="flex flex-wrap gap-4 text-xs text-gray-400 border-t border-white/5 pt-3">
         <span>
           Vegas Line:{' '}
@@ -127,12 +94,30 @@ function GameCard({ game }) {
             {game.consensus_spread !== null ? `${formatSpread(game.consensus_spread)} (home)` : '—'}
           </span>
         </span>
-        <span>
-          Model Edge:{' '}
-          <span className={`font-bold ${game.model_edge !== null && game.model_edge >= 5 ? 'text-[#C9A84C]' : 'text-white'}`}>
-            {game.model_edge !== null ? `${Number(game.model_edge).toFixed(1)} pts` : '—'}
-          </span>
-        </span>
+      </div>
+    </div>
+  )
+}
+
+function SkeletonCard() {
+  return (
+    <div className="bg-[#111111] border border-[#222222] rounded-xl p-5 animate-pulse">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="h-4 w-8 bg-white/10 rounded" />
+        <div className="h-3 w-48 bg-white/10 rounded" />
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="bg-white/[0.03] border border-white/5 rounded-lg p-3 space-y-2">
+          <div className="h-3 w-24 bg-white/10 rounded" />
+          <div className="h-3 w-16 bg-white/10 rounded" />
+        </div>
+        <div className="bg-white/[0.03] border border-white/5 rounded-lg p-3 space-y-2">
+          <div className="h-3 w-24 bg-white/10 rounded" />
+          <div className="h-3 w-16 bg-white/10 rounded" />
+        </div>
+      </div>
+      <div className="border-t border-white/5 pt-3">
+        <div className="h-3 w-32 bg-white/10 rounded" />
       </div>
     </div>
   )
@@ -164,17 +149,17 @@ export default function GamesPage() {
     return () => { cancelled = true }
   }, [week])
 
-  const filteredGames = filter === 'All' 
-    ? games 
+  const filteredGames = filter === 'All'
+    ? games
     : games.filter(g => g.conference_group === filter)
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Weekly Predictions</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">FBS Schedule</h1>
           <p className="text-gray-500 text-sm">
-            Model win probabilities and value edges for FBS matchups.
+            FBS schedule, Vegas lines, and win probabilities.
           </p>
         </div>
 
@@ -212,13 +197,11 @@ export default function GamesPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-56 bg-white/5 rounded-xl animate-pulse" />
-          ))}
+          {[1, 2, 3, 4, 5, 6].map(i => <SkeletonCard key={i} />)}
         </div>
       ) : filteredGames.length === 0 ? (
         <div className="py-24 text-center">
-          <p className="text-gray-500 text-lg italic">No {filter !== 'All' ? filter : ''} games found for this week.</p>
+          <p className="text-gray-500 text-sm">No games found for this week.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
